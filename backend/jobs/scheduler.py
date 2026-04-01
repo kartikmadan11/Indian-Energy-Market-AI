@@ -10,13 +10,6 @@ from zoneinfo import ZoneInfo
 import pandas as pd
 
 from backend.common.config import DB_PATH
-from backend.data.scrape_iex import scrape_date as scrape_iex_date
-from backend.data.scrape_tam import (
-    fetch_tam_rsc,
-    records_to_rows as tam_records_to_rows,
-    store_rows as tam_store_rows,
-)
-from backend.forecast_service.model import PriceForecastModel
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +35,7 @@ def _env_int(name: str, default: int) -> int:
 
 
 def _train_segment(segment: str) -> dict:
+    from backend.forecast_service.model import PriceForecastModel
     conn = sqlite3.connect(DB_PATH)
     try:
         df = pd.read_sql_query(
@@ -68,6 +62,12 @@ def _train_segment(segment: str) -> dict:
 
 
 def _run_pipeline_sync() -> None:
+    from backend.data.scrape_iex import scrape_date as scrape_iex_date
+    from backend.data.scrape_tam import (
+        fetch_tam_rsc,
+        records_to_rows as tam_records_to_rows,
+        store_rows as tam_store_rows,
+    )
     lookback_days = max(1, _env_int("SCHEDULER_SCRAPE_LOOKBACK_DAYS", 1))
     tam_region = os.getenv("SCHEDULER_TAM_REGION", "NR").strip().upper() or "NR"
     retrain_enabled = _env_bool("SCHEDULER_RETRAIN_ENABLED", True)
