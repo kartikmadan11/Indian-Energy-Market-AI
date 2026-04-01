@@ -139,6 +139,9 @@ async def run_daily_pipeline() -> None:
 def start_scheduler() -> None:
     global scheduler
 
+    # Ensure application loggers are visible in journald
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s:%(name)s:%(message)s")
+
     try:
         AsyncIOScheduler = importlib.import_module(
             "apscheduler.schedulers.asyncio"
@@ -176,12 +179,9 @@ def start_scheduler() -> None:
     )
     scheduler.start()
 
-    logger.info(
-        "Scheduler started: daily scrape+retrain at %02d:%02d (%s)",
-        hour,
-        minute,
-        timezone_name,
-    )
+    msg = f"Scheduler started: daily scrape+retrain at {hour:02d}:{minute:02d} ({timezone_name})"
+    logger.info(msg)
+    print(msg, flush=True)
 
     if _env_bool("SCHEDULER_RUN_ON_STARTUP", False):
         scheduler.add_job(run_daily_pipeline, id="startup-scrape-retrain", replace_existing=True)
