@@ -1,4 +1,5 @@
 aiosqlite
+APScheduler
 fastapi
 uvicorn[standard]
 sqlalchemy

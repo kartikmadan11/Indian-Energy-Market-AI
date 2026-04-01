@@ -8,12 +8,15 @@ from backend.forecast_service.router import router as forecast_router
 from backend.bid_engine_service.router import router as bid_router
 from backend.risk_service.router import router as risk_router
 from backend.audit_service.router import router as audit_router
+from backend.jobs.scheduler import start_scheduler, stop_scheduler
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_db()
+    start_scheduler()
     yield
+    stop_scheduler()
 
 
 app = FastAPI(
