@@ -1,0 +1,53 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --bg-primary: #0a0f1a;
+    --bg-secondary: #111827;
+    --bg-card: #1a2332;
+    --border: #1e2d3d;
+    --accent: #3b82f6;
+    --accent-hover: #2563eb;
+    --danger: #ef4444;
+    --warning: #f59e0b;
+    --success: #22c55e;
+  }
+}
+
+.card {
+  @apply bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-4;
+}
+
+.btn-primary {
+  @apply bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white font-medium py-2 px-4 rounded-lg transition-colors;
+}
+
+.btn-secondary {
+  @apply bg-gray-700 hover:bg-gray-600 text-white font-medium py-2 px-4 rounded-lg transition-colors;
+}
+
+.btn-danger {
+  @apply bg-red-600 hover:bg-red-700 text-white font-medium py-2 px-4 rounded-lg transition-colors;
+}
+
+.input-field {
+  @apply bg-gray-800 border border-gray-600 text-white rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500;
+}
+
+.select-field {
+  @apply bg-gray-800 border border-gray-600 text-white rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500;
+}
+
+.badge-violation {
+  @apply bg-red-900/50 text-red-300 border border-red-600 text-xs px-2 py-0.5 rounded-full;
+}
+
+.badge-ok {
+  @apply bg-green-900/50 text-green-300 border border-green-600 text-xs px-2 py-0.5 rounded-full;
+}
+
+.badge-warning {
+  @apply bg-yellow-900/50 text-yellow-300 border border-yellow-600 text-xs px-2 py-0.5 rounded-full;
+}

@@ -1,0 +1,13 @@
+aiosqlite
+fastapi
+uvicorn[standard]
+sqlalchemy
+pandas
+numpy
+scikit-learn
+scipy
+PuLP
+httpx
+pydantic
+python-dotenv
+joblib
