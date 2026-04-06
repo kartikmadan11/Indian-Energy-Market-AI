@@ -72,14 +72,14 @@ export default function Sidebar() {
     <aside className="w-56 bg-[var(--bg-secondary)] border-r border-[var(--border)] flex flex-col shrink-0">
       {/* Platform identity under the header */}
       <div className="px-4 py-3 border-b border-[var(--border)]">
-        <p className="text-sm font-bold text-white tracking-wide">PowerTrader</p>
+        <p className="text-sm font-bold text-gray-900 tracking-wide">PowerTrader</p>
         <p className="text-[10px] text-gray-500 mt-0.5">Indian Energy Exchange</p>
       </div>
 
       <nav className="flex-1 px-2 py-3 space-y-4 overflow-y-auto">
         {sections.map((section) => (
           <div key={section.label}>
-            <p className="px-3 mb-1 text-[9px] font-bold tracking-widest text-gray-600 uppercase">
+            <p className="px-3 mb-1 text-[9px] font-bold tracking-widest text-gray-400 uppercase">
               {section.label}
             </p>
             <div className="space-y-0.5">
@@ -91,11 +91,11 @@ export default function Sidebar() {
                     href={item.href}
                     className={`flex items-center gap-2.5 px-3 py-2 rounded-md text-xs transition-all ${
                       isActive
-                        ? "bg-[var(--infy-blue)]/20 text-[#60AEDE] border border-[var(--infy-blue)]/30 font-medium"
-                        : "text-gray-400 hover:bg-[#132040] hover:text-gray-200"
+                        ? "bg-[#EEF5FB] text-[#006DAE] border border-[#006DAE]/20 font-medium"
+                        : "text-gray-600 hover:bg-gray-100 hover:text-gray-900"
                     }`}
                   >
-                    <span className={isActive ? "text-[#60AEDE]" : "text-gray-500"}>
+                    <span className={isActive ? "text-[#006DAE]" : "text-gray-400"}>
                       {item.icon}
                     </span>
                     {item.label}
@@ -112,8 +112,8 @@ export default function Sidebar() {
 
       {/* Footer */}
       <div className="px-4 py-3 border-t border-[var(--border)] space-y-1">
-        <p className="text-[10px] font-semibold text-gray-400">Infosys Limited</p>
-        <p className="text-[9px] text-gray-600">© {new Date().getFullYear()} All rights reserved.</p>
+        <p className="text-[10px] font-semibold text-gray-500">Infosys Limited</p>
+        <p className="text-[9px] text-gray-400">© {new Date().getFullYear()} All rights reserved.</p>
       </div>
     </aside>
   );

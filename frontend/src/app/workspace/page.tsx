@@ -135,7 +135,7 @@ function WorkflowStepper({ stage }: { stage: Stage }) {
                     ? "bg-[#00B398] text-white"
                     : active
                       ? "bg-[#006DAE] text-white"
-                      : "bg-[#1A3558] text-gray-500"
+                      : "bg-gray-200 text-gray-500"
                 }`}
               >
                 {spinning ? (
@@ -151,7 +151,7 @@ function WorkflowStepper({ stage }: { stage: Stage }) {
               </div>
               <span
                 className={`text-[10px] font-medium ${
-                  done ? "text-[#00B398]" : active ? "text-white" : "text-gray-600"
+                  done ? "text-[#00B398]" : active ? "text-[#006DAE]" : "text-gray-400"
                 }`}
               >
                 {step.label}
@@ -159,7 +159,7 @@ function WorkflowStepper({ stage }: { stage: Stage }) {
             </div>
             {i < WORKFLOW_STEPS.length - 1 && (
               <div
-                className={`w-8 h-px mx-1 ${done ? "bg-[#00B398]" : "bg-[#1A3558]"}`}
+                className={`w-8 h-px mx-1 ${done ? "bg-[#00B398]" : "bg-gray-200"}`}
               />
             )}
           </div>
@@ -186,7 +186,7 @@ function RiskMetric({
       <span className="text-base font-bold" style={{ color }}>
         {value}
       </span>
-      {sub && <span className="text-[10px] text-gray-600">{sub}</span>}
+      {sub && <span className="text-[10px] text-gray-500">{sub}</span>}
     </div>
   );
 }
@@ -418,7 +418,7 @@ export default function WorkspacePage() {
                 className={`px-3 py-1.5 text-xs font-semibold transition-colors ${
                   segment === s
                     ? "bg-[#006DAE] text-white"
-                    : "bg-[#0C1A2E] text-gray-400 hover:text-gray-200"
+                    : "bg-white text-gray-500 hover:text-gray-700"
                 }`}
               >
                 {s}
@@ -440,7 +440,7 @@ export default function WorkspacePage() {
                 className={`px-3 py-1.5 text-xs font-semibold capitalize transition-colors ${
                   strategy === s
                     ? STRATEGY_META[s].activeClass
-                    : "bg-[#0C1A2E] text-gray-400 hover:text-gray-200"
+                    : "bg-white text-gray-500 hover:text-gray-700"
                 }`}
               >
                 {s}
@@ -503,22 +503,22 @@ export default function WorkspacePage() {
 
       {/* ── Status banners ────────────────────────────────────────────── */}
       {error && (
-        <div className="card py-2 bg-red-900/20 border-red-700/40 flex items-center gap-2">
-          <span className="text-red-400 text-xs">{error}</span>
-          <button onClick={() => setError("")} className="ml-auto text-gray-500 hover:text-white text-xs">✕</button>
+        <div className="card py-2 bg-red-50 border-red-200 flex items-center gap-2">
+          <span className="text-red-600 text-xs">{error}</span>
+          <button onClick={() => setError("")} className="ml-auto text-gray-400 hover:text-gray-700 text-xs">✕</button>
         </div>
       )}
       {validationResult && (
         <div
           className={`card py-2 flex items-center gap-2 ${
             validationResult.valid
-              ? "bg-[#00B398]/10 border-[#00B398]/30"
-              : "bg-red-900/20 border-red-700/40"
+              ? "bg-teal-50 border-teal-200"
+              : "bg-red-50 border-red-200"
           }`}
         >
           <span
             className={`text-xs font-medium ${
-              validationResult.valid ? "text-[#00B398]" : "text-red-400"
+              validationResult.valid ? "text-teal-700" : "text-red-600"
             }`}
           >
             {validationResult.valid
@@ -528,8 +528,8 @@ export default function WorkspacePage() {
         </div>
       )}
       {submitResult && (
-        <div className="card py-2 bg-[#00B398]/10 border-[#00B398]/30 flex items-center gap-3">
-          <span className="text-[#00B398] text-xs font-medium">
+        <div className="card py-2 bg-teal-50 border-teal-200 flex items-center gap-3">
+          <span className="text-teal-700 text-xs font-medium">
             ✓ Submitted — Session {submitResult.session_id} · {submitResult.bid_count} bids · {submitResult.violations?.length ?? 0} violations
           </span>
         </div>
@@ -547,7 +547,7 @@ export default function WorkspacePage() {
                 onClick={() => setChartOpen((o) => !o)}
               >
                 <div className="flex items-center gap-3">
-                  <span className="text-xs font-semibold text-gray-300">
+                  <span className="text-xs font-semibold text-gray-700">
                     Price Forecast — {segment} — {targetDate}
                   </span>
                   <span className="text-[10px] text-gray-500">
@@ -567,21 +567,22 @@ export default function WorkspacePage() {
                           <stop offset="95%" stopColor="#006DAE" stopOpacity={0} />
                         </linearGradient>
                       </defs>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#1A3558" vertical={false} />
+                      <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" vertical={false} />
                       <XAxis
                         dataKey="block"
-                        stroke="#374151"
+                        stroke="#9CA3AF"
                         fontSize={9}
                         interval={11}
                         tickFormatter={(b) => blockToTime(b)}
                       />
-                      <YAxis stroke="#374151" fontSize={9} tickFormatter={(v) => `₹${v}`} />
+                      <YAxis stroke="#9CA3AF" fontSize={9} tickFormatter={(v) => `₹${v}`} />
                       <Tooltip
                         contentStyle={{
-                          background: "#0C1A2E",
-                          border: "1px solid #1A3558",
+                          background: "#FFFFFF",
+                          border: "1px solid #E2E8F0",
                           borderRadius: "6px",
                           fontSize: "11px",
+                          color: "#1E293B",
                         }}
                         labelFormatter={(b) => `Block ${b} · ${blockToTime(Number(b))}`}
                         formatter={(v: number, name: string) => [`₹${v.toFixed(3)}`, name]}
@@ -598,7 +599,7 @@ export default function WorkspacePage() {
                         type="monotone"
                         dataKey="low"
                         stroke="transparent"
-                        fill="#071225"
+                        fill="#F9FAFB"
                         name="CI Low"
                       />
                       <Area
@@ -624,7 +625,7 @@ export default function WorkspacePage() {
               {/* Table header bar */}
               <div className="flex items-center justify-between px-4 py-2.5 border-b border-[var(--border)]">
                 <div className="flex items-center gap-3">
-                  <span className="text-xs font-semibold text-gray-300">
+                  <span className="text-xs font-semibold text-gray-700">
                     Bid Grid — {segment} · {strategy}
                   </span>
                   <span
@@ -640,10 +641,10 @@ export default function WorkspacePage() {
                 </div>
                 <div className="flex items-center gap-3 text-[10px] text-gray-500">
                   {overrideCount > 0 && (
-                    <span className="text-amber-400">{overrideCount} edited</span>
+                    <span className="text-amber-600">{overrideCount} edited</span>
                   )}
                   {violationCount > 0 && (
-                    <span className="text-red-400">{violationCount} violations</span>
+                    <span className="text-red-600">{violationCount} violations</span>
                   )}
                   <span>
                     {totalVol.toFixed(1)} MW total · ₹{avgBidPrice.toFixed(3)} avg
@@ -654,14 +655,14 @@ export default function WorkspacePage() {
               {/* Scrollable table */}
               <div className="overflow-y-auto max-h-[480px]">
                 <table className="w-full text-xs border-collapse">
-                  <thead className="sticky top-0 z-10 bg-[#0C1A2E]">
+                  <thead className="sticky top-0 z-10 bg-gray-50 border-b border-gray-200">
                     <tr className="text-[10px] text-gray-500 uppercase tracking-wider">
                       <th className="text-left py-2 px-3 font-medium">#</th>
                       <th className="text-left py-2 px-2 font-medium">Time</th>
                       <th className="text-right py-2 px-2 font-medium">Fcst ₹</th>
                       <th className="text-right py-2 px-2 font-medium">CI Band</th>
-                      <th className="text-right py-2 px-2 font-medium text-[#60AEDE]">Bid ₹</th>
-                      <th className="text-right py-2 px-2 font-medium text-[#60AEDE]">Vol MW</th>
+                      <th className="text-right py-2 px-2 font-medium text-[#006DAE]">Bid ₹</th>
+                      <th className="text-right py-2 px-2 font-medium text-[#006DAE]">Vol MW</th>
                       <th className="text-right py-2 px-2 font-medium">DSM Est</th>
                       <th className="text-right py-2 px-2 font-medium">Uncert.</th>
                       <th className="text-center py-2 px-2 font-medium">Status</th>
@@ -678,18 +679,18 @@ export default function WorkspacePage() {
                       return (
                         <tr
                           key={b.block}
-                          className={`border-t border-[#132040] transition-colors ${
+                          className={`border-t border-gray-100 transition-colors ${
                             hasViolation
-                              ? "bg-red-900/10"
+                              ? "bg-red-50"
                               : isEdited
-                                ? "bg-amber-900/10"
+                                ? "bg-amber-50"
                                 : idx % 2 === 0
                                   ? "bg-transparent"
-                                  : "bg-[#0C1A2E]/40"
-                          } hover:bg-[#132040]/60`}
+                                  : "bg-gray-50/60"
+                          } hover:bg-blue-50/40`}
                         >
                           {/* Block # */}
-                          <td className="py-1.5 px-3 font-mono font-medium text-gray-400">
+                          <td className="py-1.5 px-3 font-mono font-medium text-gray-500">
                             {b.block}
                           </td>
 
@@ -699,7 +700,7 @@ export default function WorkspacePage() {
                           </td>
 
                           {/* Forecast price */}
-                          <td className="py-1.5 px-2 text-right tabular-nums text-gray-300">
+                          <td className="py-1.5 px-2 text-right tabular-nums text-gray-700">
                             {b.predicted_price.toFixed(3)}
                           </td>
 
@@ -707,7 +708,7 @@ export default function WorkspacePage() {
                           <td className="py-1.5 px-2 text-right tabular-nums">
                             <span
                               className={`text-[10px] ${
-                                highUncertainty ? "text-amber-400" : "text-gray-600"
+                                highUncertainty ? "text-amber-600" : "text-gray-400"
                               }`}
                             >
                               {b.confidence_low.toFixed(2)}–{b.confidence_high.toFixed(2)}
@@ -725,10 +726,10 @@ export default function WorkspacePage() {
                               }
                               className={`w-20 bg-transparent border-b tabular-nums text-right text-xs focus:outline-none transition-colors ${
                                 hasViolation
-                                  ? "border-red-500 text-red-300 focus:border-red-400"
+                                  ? "border-red-400 text-red-700 focus:border-red-500"
                                   : isEdited
-                                    ? "border-amber-500 text-amber-200 focus:border-amber-400"
-                                    : "border-[#1A3558] text-white focus:border-[#006DAE]"
+                                    ? "border-amber-400 text-amber-700 focus:border-amber-500"
+                                    : "border-gray-300 text-gray-900 focus:border-[#006DAE]"
                               }`}
                             />
                           </td>
@@ -744,8 +745,8 @@ export default function WorkspacePage() {
                               }
                               className={`w-16 bg-transparent border-b tabular-nums text-right text-xs focus:outline-none transition-colors ${
                                 isEdited
-                                  ? "border-amber-500 text-amber-200 focus:border-amber-400"
-                                  : "border-[#1A3558] text-white focus:border-[#006DAE]"
+                                  ? "border-amber-400 text-amber-700 focus:border-amber-500"
+                                  : "border-gray-300 text-gray-900 focus:border-[#006DAE]"
                               }`}
                             />
                           </td>
@@ -755,8 +756,8 @@ export default function WorkspacePage() {
                             <span
                               className={`text-[10px] ${
                                 b.dsm_penalty_estimate > 0
-                                  ? "text-red-400"
-                                  : "text-gray-600"
+                                  ? "text-red-600"
+                                  : "text-gray-400"
                               }`}
                             >
                               {b.dsm_penalty_estimate > 0
@@ -769,7 +770,7 @@ export default function WorkspacePage() {
                           <td className="py-1.5 px-2 text-right tabular-nums">
                             <span
                               className={`text-[10px] ${
-                                highUncertainty ? "text-amber-400" : "text-gray-600"
+                                highUncertainty ? "text-amber-600" : "text-gray-400"
                               }`}
                             >
                               {b.uncertainty_score.toFixed(3)}
@@ -826,7 +827,7 @@ export default function WorkspacePage() {
                                 ) : (
                                   <button
                                     onClick={() => setEditingReasonBlock(b.block)}
-                                    className="text-[10px] text-amber-400 hover:underline text-left max-w-[100px] truncate"
+                                    className="text-[10px] text-amber-600 hover:underline text-left max-w-[100px] truncate"
                                   >
                                     {b.override_reason || "Add reason…"}
                                   </button>
@@ -849,17 +850,17 @@ export default function WorkspacePage() {
               <div className="w-12 h-12 rounded-full bg-[#006DAE]/10 border border-[#006DAE]/20 flex items-center justify-center text-[#006DAE] text-xl">
                 ⚡
               </div>
-              <p className="text-gray-400 text-sm font-medium">Trading workstation ready</p>
-              <p className="text-gray-600 text-xs max-w-xs">
+              <p className="text-gray-600 text-sm font-medium">Trading workstation ready</p>
+              <p className="text-gray-500 text-xs max-w-xs">
                 Select a date, segment and strategy above, then click{" "}
-                <span className="text-white">1 · Forecast</span> to begin.
+                <span className="text-[#006DAE] font-medium">1 · Forecast</span> to begin.
               </p>
             </div>
           )}
 
           {forecastBlocks.length > 0 && bidRows.length === 0 && (
             <div className="card flex flex-col items-center justify-center py-10 gap-2 text-center">
-              <p className="text-gray-400 text-sm">Forecast ready — click <span className="text-white font-medium">2 · Get Bids</span> to generate LP-optimised bid recommendations.</p>
+              <p className="text-gray-600 text-sm">Forecast ready — click <span className="text-[#006DAE] font-medium">2 · Get Bids</span> to generate LP-optimised bid recommendations.</p>
             </div>
           )}
         </div>
@@ -869,7 +870,7 @@ export default function WorkspacePage() {
           {/* Risk metrics card */}
           <div className="card flex flex-col gap-4">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold text-gray-300">Risk Panel</span>
+              <span className="text-xs font-semibold text-gray-700">Risk Panel</span>
               {riskLoading && (
                 <span className="text-[10px] text-gray-500 flex items-center gap-1">
                   <svg className="animate-spin w-2.5 h-2.5" viewBox="0 0 24 24" fill="none">
@@ -884,9 +885,9 @@ export default function WorkspacePage() {
             {liveRisk ? (
               <>
                 {liveRisk.alert_triggered && (
-                  <div className="rounded-md bg-red-900/30 border border-red-700/50 px-3 py-2">
-                    <p className="text-red-400 text-[10px] font-bold uppercase tracking-wider">⚠ Risk Alert</p>
-                    <p className="text-red-300 text-[10px] mt-0.5">
+                  <div className="rounded-md bg-red-50 border border-red-200 px-3 py-2">
+                    <p className="text-red-600 text-[10px] font-bold uppercase tracking-wider">⚠ Risk Alert</p>
+                    <p className="text-red-600 text-[10px] mt-0.5">
                       {liveRisk.alert_details?.message ?? "Exposure exceeds threshold"}
                     </p>
                   </div>
@@ -922,11 +923,11 @@ export default function WorkspacePage() {
                 <div className="pt-2 border-t border-[var(--border)]">
                   <div className="flex justify-between text-[10px] text-gray-500 mb-1">
                     <span>Exposure vs threshold</span>
-                    <span className={liveRisk.alert_triggered ? "text-red-400" : "text-[#00B398]"}>
+                    <span className={liveRisk.alert_triggered ? "text-red-600" : "text-teal-600"}>
                       {((liveRisk.total_exposure / 500000) * 100).toFixed(0)}%
                     </span>
                   </div>
-                  <div className="w-full bg-[#132040] rounded-full h-1.5">
+                  <div className="w-full bg-gray-200 rounded-full h-1.5">
                     <div
                       className={`h-1.5 rounded-full transition-all ${
                         liveRisk.alert_triggered ? "bg-red-500" : "bg-[#00B398]"
@@ -940,7 +941,7 @@ export default function WorkspacePage() {
               </>
             ) : (
               <div className="py-6 text-center">
-                <p className="text-gray-600 text-[10px]">
+                <p className="text-gray-500 text-[10px]">
                   {bidRows.length === 0
                     ? "Risk updates live once bids are generated"
                     : "Calculating…"}
@@ -952,31 +953,31 @@ export default function WorkspacePage() {
           {/* LP Optimizer summary */}
           {bidRows.length > 0 && (
             <div className="card flex flex-col gap-2">
-              <span className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">LP Summary</span>
+              <span className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider">LP Summary</span>
               <div className="space-y-1.5 text-[11px]">
                 <div className="flex justify-between">
                   <span className="text-gray-500">Total volume</span>
-                  <span className="text-white font-medium">{totalVol.toFixed(1)} MW</span>
+                  <span className="text-gray-900 font-medium">{totalVol.toFixed(1)} MW</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-gray-500">Avg bid price</span>
-                  <span className="text-white font-medium">₹{avgBidPrice.toFixed(3)}</span>
+                  <span className="text-gray-900 font-medium">₹{avgBidPrice.toFixed(3)}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-gray-500">DSM penalty est.</span>
-                  <span className={totalDsmEst > 0 ? "text-red-400 font-medium" : "text-[#00B398] font-medium"}>
+                  <span className={totalDsmEst > 0 ? "text-red-600 font-medium" : "text-teal-600 font-medium"}>
                     {totalDsmEst > 0 ? formatINR(totalDsmEst) : "₹0"}
                   </span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-gray-500">Overrides</span>
-                  <span className={overrideCount > 0 ? "text-amber-400 font-medium" : "text-gray-500"}>
+                  <span className={overrideCount > 0 ? "text-amber-600 font-medium" : "text-gray-400"}>
                     {overrideCount} / 96
                   </span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-gray-500">Violations</span>
-                  <span className={violationCount > 0 ? "text-red-400 font-medium" : "text-[#00B398] font-medium"}>
+                  <span className={violationCount > 0 ? "text-red-600 font-medium" : "text-teal-600 font-medium"}>
                     {violationCount}
                   </span>
                 </div>
@@ -1011,7 +1012,7 @@ export default function WorkspacePage() {
 
           {/* Strategy λ info */}
           <div className="card">
-            <span className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">
+            <span className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider">
               LP Objective
             </span>
             <div className="mt-2 font-mono text-[10px] text-gray-500 leading-relaxed">

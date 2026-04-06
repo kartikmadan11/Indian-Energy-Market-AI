@@ -11,12 +11,12 @@
     --infy-teal-dark: #009980;
 
     /* Surface tokens */
-    --bg-primary: #071225;
-    --bg-secondary: #0C1A2E;
-    --bg-card: #0F2040;
-    --bg-card-hover: #132647;
-    --border: #1A3558;
-    --border-subtle: #132040;
+    --bg-primary: #F4F6F9;
+    --bg-secondary: #FFFFFF;
+    --bg-card: #FFFFFF;
+    --bg-card-hover: #F8FAFC;
+    --border: #E2E8F0;
+    --border-subtle: #F1F5F9;
 
     /* Semantic */
     --accent: #006DAE;
@@ -29,12 +29,12 @@
 }
 
 .card {
-  @apply bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-4;
+  @apply bg-white border border-[var(--border)] rounded-lg p-4 shadow-sm;
 }
 
 .card-hover {
-  @apply bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-4
-         hover:bg-[var(--bg-card-hover)] hover:border-[#1E4070] transition-colors;
+  @apply bg-white border border-[var(--border)] rounded-lg p-4 shadow-sm
+         hover:bg-[var(--bg-card-hover)] hover:border-[#C7D9EC] transition-colors;
 }
 
 .btn-primary {
@@ -46,7 +46,7 @@
 }
 
 .btn-secondary {
-  @apply bg-[#1A3558] hover:bg-[#1E4070] text-white font-medium py-2 px-4 rounded-lg transition-colors border border-[var(--border)];
+  @apply bg-white hover:bg-[#EEF5FB] text-[var(--infy-blue)] font-medium py-2 px-4 rounded-lg transition-colors border border-[var(--border)];
 }
 
 .btn-danger {
@@ -54,25 +54,25 @@
 }
 
 .input-field {
-  @apply bg-[#0C1A2E] border border-[var(--border)] text-white rounded-lg px-3 py-2
+  @apply bg-white border border-[var(--border)] text-gray-900 rounded-lg px-3 py-2
          focus:outline-none focus:ring-2 focus:ring-[var(--infy-blue)] focus:border-[var(--infy-blue)];
 }
 
 .select-field {
-  @apply bg-[#0C1A2E] border border-[var(--border)] text-white rounded-lg px-3 py-2
+  @apply bg-white border border-[var(--border)] text-gray-900 rounded-lg px-3 py-2
          focus:outline-none focus:ring-2 focus:ring-[var(--infy-blue)] focus:border-[var(--infy-blue)];
 }
 
 .badge-violation {
-  @apply bg-red-900/50 text-red-300 border border-red-700 text-xs px-2 py-0.5 rounded-full;
+  @apply bg-red-50 text-red-700 border border-red-200 text-xs px-2 py-0.5 rounded-full;
 }
 
 .badge-ok {
-  @apply bg-teal-900/50 text-teal-300 border border-teal-700 text-xs px-2 py-0.5 rounded-full;
+  @apply bg-teal-50 text-teal-700 border border-teal-200 text-xs px-2 py-0.5 rounded-full;
 }
 
 .badge-warning {
-  @apply bg-yellow-900/50 text-yellow-300 border border-yellow-700 text-xs px-2 py-0.5 rounded-full;
+  @apply bg-amber-50 text-amber-700 border border-amber-200 text-xs px-2 py-0.5 rounded-full;
 }
 
 /* Infosys header gradient strip */
