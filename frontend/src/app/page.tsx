@@ -13,16 +13,39 @@ import {
   CartesianGrid,
   Legend,
 } from "recharts";
-import { getLatestForecast, getHistory, getHealth, triggerScrape } from "@/lib/api";
+import {
+  getLatestForecast,
+  getHistory,
+  getHealth,
+  triggerScrape,
+} from "@/lib/api";
 import { blockToTime } from "@/lib/utils";
 
 const SEGMENTS = ["DAM", "RTM", "TAM"] as const;
 type Segment = (typeof SEGMENTS)[number];
 
-const SEGMENT_META: Record<Segment, { label: string; color: string; predColor: string; desc: string }> = {
-  DAM: { label: "Day-Ahead Market",  color: "#006DAE", predColor: "#00B398", desc: "Gate closure D-1 · 96 blocks" },
-  RTM: { label: "Real-Time Market",  color: "#F59E0B", predColor: "#EF4444", desc: "Gate closure 55 min · 96 blocks" },
-  TAM: { label: "Term-Ahead Market", color: "#8B5CF6", predColor: "#EC4899", desc: "Intraday · Weekly · Monthly" },
+const SEGMENT_META: Record<
+  Segment,
+  { label: string; color: string; predColor: string; desc: string }
+> = {
+  DAM: {
+    label: "Day-Ahead Market",
+    color: "#006DAE",
+    predColor: "#00B398",
+    desc: "Gate closure D-1 · 96 blocks",
+  },
+  RTM: {
+    label: "Real-Time Market",
+    color: "#F59E0B",
+    predColor: "#EF4444",
+    desc: "Gate closure 55 min · 96 blocks",
+  },
+  TAM: {
+    label: "Term-Ahead Market",
+    color: "#8B5CF6",
+    predColor: "#EC4899",
+    desc: "Intraday · Weekly · Monthly",
+  },
 };
 
 interface ChartPoint {
@@ -55,18 +78,47 @@ const CustomTooltip = ({ active, payload, label }: any) => {
   );
 };
 
-interface ScrapeInfo { latest_data: string | null; row_count: number }
+interface ScrapeInfo {
+  latest_data: string | null;
+  row_count: number;
+}
 
 export default function Home() {
   const [data, setData] = useState<Record<Segment, SegmentState>>({
-    DAM: { points: [], avgActual: 0, avgPred: null, hasPred: false, loaded: false },
-    RTM: { points: [], avgActual: 0, avgPred: null, hasPred: false, loaded: false },
-    TAM: { points: [], avgActual: 0, avgPred: null, hasPred: false, loaded: false },
+    DAM: {
+      points: [],
+      avgActual: 0,
+      avgPred: null,
+      hasPred: false,
+      loaded: false,
+    },
+    RTM: {
+      points: [],
+      avgActual: 0,
+      avgPred: null,
+      hasPred: false,
+      loaded: false,
+    },
+    TAM: {
+      points: [],
+      avgActual: 0,
+      avgPred: null,
+      hasPred: false,
+      loaded: false,
+    },
   });
   const [health, setHealth] = useState<any>(null);
-  const [scraping, setScraping] = useState<Record<Segment, boolean>>({ DAM: false, RTM: false, TAM: false });
-  const [scrapeInfo, setScrapeInfo] = useState<Record<Segment, ScrapeInfo | null>>({ DAM: null, RTM: null, TAM: null });
-  const [scrapeError, setScrapeError] = useState<Record<Segment, string | null>>({ DAM: null, RTM: null, TAM: null });
+  const [scraping, setScraping] = useState<Record<Segment, boolean>>({
+    DAM: false,
+    RTM: false,
+    TAM: false,
+  });
+  const [scrapeInfo, setScrapeInfo] = useState<
+    Record<Segment, ScrapeInfo | null>
+  >({ DAM: null, RTM: null, TAM: null });
+  const [scrapeError, setScrapeError] = useState<
+    Record<Segment, string | null>
+  >({ DAM: null, RTM: null, TAM: null });
 
   const loadSegment = async (seg: Segment) => {
     setData((prev) => ({ ...prev, [seg]: { ...prev[seg], loaded: false } }));
@@ -115,15 +167,23 @@ export default function Home() {
         }
       }
 
-      const actualVals = points.flatMap((p) => (p.actual !== undefined ? [p.actual] : []));
-      const predVals = points.flatMap((p) => (p.predicted !== undefined ? [p.predicted] : []));
+      const actualVals = points.flatMap((p) =>
+        p.actual !== undefined ? [p.actual] : [],
+      );
+      const predVals = points.flatMap((p) =>
+        p.predicted !== undefined ? [p.predicted] : [],
+      );
 
       setData((prev) => ({
         ...prev,
         [seg]: {
           points,
-          avgActual: actualVals.length ? actualVals.reduce((s, v) => s + v, 0) / actualVals.length : 0,
-          avgPred: predVals.length ? predVals.reduce((s, v) => s + v, 0) / predVals.length : null,
+          avgActual: actualVals.length
+            ? actualVals.reduce((s, v) => s + v, 0) / actualVals.length
+            : 0,
+          avgPred: predVals.length
+            ? predVals.reduce((s, v) => s + v, 0) / predVals.length
+            : null,
           hasPred: predVals.length > 0,
           loaded: true,
         },
@@ -147,7 +207,10 @@ export default function Home() {
       }));
       await loadSegment(seg);
     } catch (err: any) {
-      setScrapeError((prev) => ({ ...prev, [seg]: err?.response?.data?.detail ?? "Scrape failed" }));
+      setScrapeError((prev) => ({
+        ...prev,
+        [seg]: err?.response?.data?.detail ?? "Scrape failed",
+      }));
     } finally {
       setScraping((prev) => ({ ...prev, [seg]: false }));
     }
@@ -187,7 +250,11 @@ export default function Home() {
             </span>
           )}
           <span className="text-[10px] text-gray-500 bg-gray-100 border border-gray-200 px-2 py-1 rounded-full">
-            {new Date().toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}
+            {new Date().toLocaleDateString("en-IN", {
+              day: "2-digit",
+              month: "short",
+              year: "numeric",
+            })}
           </span>
         </div>
       </div>
@@ -201,12 +268,22 @@ export default function Home() {
           <div key={seg} className="card">
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-sm font-bold" style={{ color: meta.color }}>{seg}</span>
-                <span className="text-xs text-gray-600 font-medium">{meta.label}</span>
+                <span
+                  className="text-sm font-bold"
+                  style={{ color: meta.color }}
+                >
+                  {seg}
+                </span>
+                <span className="text-xs text-gray-600 font-medium">
+                  {meta.label}
+                </span>
                 <span className="text-[10px] text-gray-400">{meta.desc}</span>
                 {scrapeInfo[seg]?.latest_data && (
                   <span className="text-[10px] text-gray-400 bg-gray-100 border border-gray-200 px-1.5 py-0.5 rounded">
-                    last scrape: <span className="font-medium text-gray-600">{scrapeInfo[seg]!.latest_data}</span>
+                    last scrape:{" "}
+                    <span className="font-medium text-gray-600">
+                      {scrapeInfo[seg]!.latest_data}
+                    </span>
                     {scrapeInfo[seg]!.row_count > 0 && (
                       <> · {scrapeInfo[seg]!.row_count.toLocaleString()} rows</>
                     )}
@@ -221,16 +298,26 @@ export default function Home() {
               <div className="flex items-center gap-3">
                 {state.avgActual > 0 && (
                   <div className="text-right">
-                    <div className="text-[10px] text-gray-400 uppercase tracking-wider">7-day avg</div>
-                    <div className="text-sm font-bold" style={{ color: meta.color }}>
+                    <div className="text-[10px] text-gray-400 uppercase tracking-wider">
+                      7-day avg
+                    </div>
+                    <div
+                      className="text-sm font-bold"
+                      style={{ color: meta.color }}
+                    >
                       ₹{state.avgActual.toFixed(3)}
                     </div>
                   </div>
                 )}
                 {state.avgPred !== null && (
                   <div className="text-right">
-                    <div className="text-[10px] text-gray-400 uppercase tracking-wider">forecast avg</div>
-                    <div className="text-sm font-bold" style={{ color: meta.predColor }}>
+                    <div className="text-[10px] text-gray-400 uppercase tracking-wider">
+                      forecast avg
+                    </div>
+                    <div
+                      className="text-sm font-bold"
+                      style={{ color: meta.predColor }}
+                    >
                       ₹{state.avgPred.toFixed(3)}
                     </div>
                   </div>
@@ -250,17 +337,39 @@ export default function Home() {
                   title={`Re-scrape last 3 days of ${seg} data from IEX`}
                 >
                   {scraping[seg] ? (
-                    <svg className="w-3 h-3 animate-spin" viewBox="0 0 24 24" fill="none">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4l3-3-3-3v4a8 8 0 100 16v-4l-3 3 3 3v-4a8 8 0 01-8-8z"/>
+                    <svg
+                      className="w-3 h-3 animate-spin"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                    >
+                      <circle
+                        className="opacity-25"
+                        cx="12"
+                        cy="12"
+                        r="10"
+                        stroke="currentColor"
+                        strokeWidth="4"
+                      />
+                      <path
+                        className="opacity-75"
+                        fill="currentColor"
+                        d="M4 12a8 8 0 018-8v4l3-3-3-3v4a8 8 0 100 16v-4l-3 3 3 3v-4a8 8 0 01-8-8z"
+                      />
                     </svg>
                   ) : (
-                    <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                      <path d="M1 4v6h6"/><path d="M23 20v-6h-6"/>
-                      <path d="M20.49 9A9 9 0 005.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 013.51 15"/>
+                    <svg
+                      className="w-3 h-3"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                    >
+                      <path d="M1 4v6h6" />
+                      <path d="M23 20v-6h-6" />
+                      <path d="M20.49 9A9 9 0 005.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 013.51 15" />
                     </svg>
                   )}
-                  {scraping[seg] ? "Scraping…" : "Re-scrape"}
+                  {scraping[seg] ? "Fetching" : "Fetch new data"}
                 </button>
               </div>
             </div>
@@ -268,18 +377,53 @@ export default function Home() {
             {state.loaded && state.points.length > 0 ? (
               <div className="h-52">
                 <ResponsiveContainer width="100%" height="100%">
-                  <ComposedChart data={state.points} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
+                  <ComposedChart
+                    data={state.points}
+                    margin={{ top: 4, right: 8, bottom: 0, left: 0 }}
+                  >
                     <defs>
-                      <linearGradient id={`histGrad-${seg}`} x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%"  stopColor={meta.color} stopOpacity={0.15} />
-                        <stop offset="95%" stopColor={meta.color} stopOpacity={0} />
+                      <linearGradient
+                        id={`histGrad-${seg}`}
+                        x1="0"
+                        y1="0"
+                        x2="0"
+                        y2="1"
+                      >
+                        <stop
+                          offset="5%"
+                          stopColor={meta.color}
+                          stopOpacity={0.15}
+                        />
+                        <stop
+                          offset="95%"
+                          stopColor={meta.color}
+                          stopOpacity={0}
+                        />
                       </linearGradient>
-                      <linearGradient id={`ciGrad-${seg}`} x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%"  stopColor={meta.predColor} stopOpacity={0.12} />
-                        <stop offset="95%" stopColor={meta.predColor} stopOpacity={0} />
+                      <linearGradient
+                        id={`ciGrad-${seg}`}
+                        x1="0"
+                        y1="0"
+                        x2="0"
+                        y2="1"
+                      >
+                        <stop
+                          offset="5%"
+                          stopColor={meta.predColor}
+                          stopOpacity={0.12}
+                        />
+                        <stop
+                          offset="95%"
+                          stopColor={meta.predColor}
+                          stopOpacity={0}
+                        />
                       </linearGradient>
                     </defs>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" vertical={false} />
+                    <CartesianGrid
+                      strokeDasharray="3 3"
+                      stroke="#F1F5F9"
+                      vertical={false}
+                    />
                     <XAxis
                       dataKey="label"
                       fontSize={8}
@@ -344,7 +488,9 @@ export default function Home() {
               </div>
             ) : state.loaded ? (
               <div className="h-52 flex flex-col items-center justify-center gap-2 text-center bg-gray-50 rounded-lg border border-dashed border-gray-200">
-                <p className="text-gray-400 text-xs">No data available for {seg}</p>
+                <p className="text-gray-400 text-xs">
+                  No data available for {seg}
+                </p>
                 <p className="text-gray-400 text-[10px]">
                   Scrape data first, then{" "}
                   <Link href="/forecast" className="text-[#006DAE] underline">

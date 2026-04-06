@@ -64,9 +64,7 @@ async def assess_bid_risk(
     elapsed_ms = (time.perf_counter() - t0) * 1000
 
     # Persist in background — don't block response
-    background_tasks.add_task(
-        _persist_risk_snapshot, session_id, segment, risk, db
-    )
+    background_tasks.add_task(_persist_risk_snapshot, session_id, segment, risk, db)
 
     response = RiskResult(segment=segment, **risk)
     json_response = JSONResponse(content=response.model_dump())

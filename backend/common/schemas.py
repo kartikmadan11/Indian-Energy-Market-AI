@@ -25,11 +25,13 @@ class TuningConfig(BaseModel):
     """Hyperparameter search configuration."""
 
     method: Literal["grid", "random"] = "random"
-    n_iter: int = Field(default=30, ge=5, le=200, description="Iterations for random search")
-    cv_folds: int = Field(default=5, ge=2, le=10)
-    scoring: Literal["neg_mean_absolute_percentage_error", "neg_mean_squared_error", "r2"] = (
-        "neg_mean_absolute_percentage_error"
+    n_iter: int = Field(
+        default=30, ge=5, le=200, description="Iterations for random search"
     )
+    cv_folds: int = Field(default=5, ge=2, le=10)
+    scoring: Literal[
+        "neg_mean_absolute_percentage_error", "neg_mean_squared_error", "r2"
+    ] = "neg_mean_absolute_percentage_error"
     param_grid: Optional[dict] = Field(
         default=None,
         description="Custom param grid. If None, uses sensible defaults.",
@@ -39,7 +41,9 @@ class TuningConfig(BaseModel):
 class FeatureConfig(BaseModel):
     """Control which features to engineer."""
 
-    extra_lags: list[int] = Field(default=[], description="Extra lag days, e.g. [2, 3, 14]")
+    extra_lags: list[int] = Field(
+        default=[], description="Extra lag days, e.g. [2, 3, 14]"
+    )
     rolling_windows: list[int] = Field(default=[7], description="Rolling stat windows")
     include_demand_supply_ratio: bool = True
     include_price_momentum: bool = True

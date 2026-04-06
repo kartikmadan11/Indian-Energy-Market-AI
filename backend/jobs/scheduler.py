@@ -36,6 +36,7 @@ def _env_int(name: str, default: int) -> int:
 
 def _train_segment(segment: str) -> dict:
     from backend.forecast_service.model import PriceForecastModel
+
     conn = sqlite3.connect(DB_PATH)
     try:
         df = pd.read_sql_query(
@@ -68,12 +69,15 @@ def _run_pipeline_sync() -> None:
         records_to_rows as tam_records_to_rows,
         store_rows as tam_store_rows,
     )
+
     lookback_days = max(1, _env_int("SCHEDULER_SCRAPE_LOOKBACK_DAYS", 1))
     tam_region = os.getenv("SCHEDULER_TAM_REGION", "NR").strip().upper() or "NR"
     retrain_enabled = _env_bool("SCHEDULER_RETRAIN_ENABLED", True)
 
     train_segments_raw = os.getenv("SCHEDULER_TRAIN_SEGMENTS", "DAM,RTM,TAM")
-    train_segments = [s.strip().upper() for s in train_segments_raw.split(",") if s.strip()]
+    train_segments = [
+        s.strip().upper() for s in train_segments_raw.split(",") if s.strip()
+    ]
 
     today = datetime.now().date()
     end_date = today - timedelta(days=1)
@@ -184,7 +188,9 @@ def start_scheduler() -> None:
     print(msg, flush=True)
 
     if _env_bool("SCHEDULER_RUN_ON_STARTUP", False):
-        scheduler.add_job(run_daily_pipeline, id="startup-scrape-retrain", replace_existing=True)
+        scheduler.add_job(
+            run_daily_pipeline, id="startup-scrape-retrain", replace_existing=True
+        )
         logger.info("Startup run scheduled immediately (SCHEDULER_RUN_ON_STARTUP=true)")
 
 

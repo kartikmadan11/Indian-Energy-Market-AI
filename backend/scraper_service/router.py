@@ -20,8 +20,7 @@ SEGMENTS = ("DAM", "RTM", "TAM")
 def _run_scrape_sync(segment: str, start: date_type, end: date_type) -> dict:
     """Blocking scrape function — runs inside a thread executor."""
     date_range = [
-        (start + timedelta(days=i)).isoformat()
-        for i in range((end - start).days + 1)
+        (start + timedelta(days=i)).isoformat() for i in range((end - start).days + 1)
     ]
     total: dict = {"scraped": 0, "inserted": 0, "dates": [], "errors": []}
 
@@ -57,8 +56,12 @@ def _run_scrape_sync(segment: str, start: date_type, end: date_type) -> dict:
 
 @router.post("/trigger")
 async def trigger_scrape(
-    segment: str = Query(..., pattern=r"^(DAM|RTM|TAM)$", description="Market segment to scrape"),
-    days: int = Query(default=3, ge=1, le=30, description="Number of calendar days back from today"),
+    segment: str = Query(
+        ..., pattern=r"^(DAM|RTM|TAM)$", description="Market segment to scrape"
+    ),
+    days: int = Query(
+        default=3, ge=1, le=30, description="Number of calendar days back from today"
+    ),
     start_date: str | None = Query(
         default=None,
         pattern=r"^\d{4}-\d{2}-\d{2}$",
@@ -87,18 +90,20 @@ async def trigger_scrape(
             raise HTTPException(status_code=422, detail="Invalid start_date format")
         end = date_type.fromisoformat(end_date) if end_date else today
         if end < start:
-            raise HTTPException(status_code=422, detail="end_date must be >= start_date")
+            raise HTTPException(
+                status_code=422, detail="end_date must be >= start_date"
+            )
         if (end - start).days > 29:
-            raise HTTPException(status_code=422, detail="Date range cannot exceed 30 days")
+            raise HTTPException(
+                status_code=422, detail="Date range cannot exceed 30 days"
+            )
     else:
         end = today
         start = end - timedelta(days=days - 1)
 
     loop = asyncio.get_event_loop()
     try:
-        result = await loop.run_in_executor(
-            None, _run_scrape_sync, segment, start, end
-        )
+        result = await loop.run_in_executor(None, _run_scrape_sync, segment, start, end)
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
@@ -119,7 +124,9 @@ async def trigger_scrape(
 
 @router.post("/trigger-all")
 async def trigger_scrape_all(
-    days: int = Query(default=3, ge=1, le=30, description="Number of calendar days back from today"),
+    days: int = Query(
+        default=3, ge=1, le=30, description="Number of calendar days back from today"
+    ),
 ):
     """
     Trigger a scrape for all three segments (DAM, RTM, TAM) concurrently.
@@ -131,7 +138,9 @@ async def trigger_scrape_all(
 
     async def _scrape_one(seg: str) -> dict:
         try:
-            result = await loop.run_in_executor(None, _run_scrape_sync, seg, start, today)
+            result = await loop.run_in_executor(
+                None, _run_scrape_sync, seg, start, today
+            )
             return {
                 "status": "ok",
                 "scraped": result["scraped"],
