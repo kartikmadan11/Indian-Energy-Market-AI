@@ -19,14 +19,13 @@ export default function RootLayout({
           {/* Infosys top header bar */}
           <header className="infy-header-gradient h-12 flex items-center px-5 shrink-0 z-20 shadow-lg">
             <div className="flex items-center gap-3">
-              {/* Infosys wordmark */}
-              <div className="flex items-center gap-1.5">
-                <svg viewBox="0 0 32 32" className="w-7 h-7 fill-white" aria-hidden="true">
-                  <rect width="32" height="32" rx="4" fill="white" fillOpacity="0.15"/>
-                  <text x="4" y="23" fontFamily="Arial" fontWeight="bold" fontSize="18" fill="white">i</text>
-                  <circle cx="24" cy="10" r="4" fill="#00B398"/>
-                </svg>
-                <span className="text-white font-bold text-base tracking-wide">Infosys</span>
+              {/* Infosys logo */}
+              <div className="flex items-center">
+                <img
+                  src="/infosys-logo.svg"
+                  alt="Infosys"
+                  className="h-7 w-auto"
+                />
               </div>
               <span className="text-white/40 text-sm">|</span>
               <span className="text-white/80 text-sm font-medium tracking-wide">PowerTrader</span>

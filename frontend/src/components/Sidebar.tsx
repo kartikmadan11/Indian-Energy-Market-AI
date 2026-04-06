@@ -72,9 +72,7 @@ export default function Sidebar() {
     <aside className="w-56 bg-[var(--bg-secondary)] border-r border-[var(--border)] flex flex-col shrink-0">
       {/* Platform identity under the header */}
       <div className="px-4 py-3 border-b border-[var(--border)]">
-        <p className="text-[10px] text-[#00B398] font-semibold tracking-widest uppercase">
-          AI Market Platform
-        </p>
+        <img src="/infosys-logo.svg" alt="Infosys" className="h-5 w-auto mb-1" />
         <p className="text-[10px] text-gray-500 mt-0.5">Indian Energy Exchange</p>
       </div>
 
