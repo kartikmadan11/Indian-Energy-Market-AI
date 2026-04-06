@@ -1,7 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
+  AreaChart,
+  Area,
   LineChart,
   Line,
   XAxis,
@@ -9,13 +11,23 @@ import {
   CartesianGrid,
   Tooltip,
   ResponsiveContainer,
-  Area,
-  AreaChart,
   Legend,
 } from "recharts";
-import { predictPrices, trainModel, getLatestForecast, exportForecastCsv } from "@/lib/api";
-import { blockToTime, SEGMENTS, getTomorrowDate } from "@/lib/utils";
+import {
+  predictPrices,
+  trainModel,
+  getLatestForecast,
+  exportForecastCsv,
+  recommendBids,
+  submitBids,
+  validateBids,
+  assessRisk,
+  type TrainConfig,
+  type BidOptConfig,
+} from "@/lib/api";
+import { blockToTime, SEGMENTS, STRATEGIES, getTomorrowDate, formatINR } from "@/lib/utils";
 
+/* ─── Types ──────────────────────────────────────────────────────────── */
 interface ForecastBlock {
   block: number;
   predicted_price: number;
@@ -25,68 +37,199 @@ interface ForecastBlock {
   top_features: { feature: string; importance: number }[];
 }
 
-export default function ForecastPage() {
+interface BidRow {
+  block: number;
+  segment: string;
+  price: number;
+  volume_mw: number;
+  strategy: string;
+  is_overridden: boolean;
+  override_reason: string;
+  constraint_violations: any[];
+}
+
+const OVERRIDE_REASONS = [
+  "Market intelligence",
+  "Demand forecast adjustment",
+  "Risk mitigation",
+  "Regulatory requirement",
+  "Manager directive",
+  "Other",
+];
+
+/* ─── Small helpers ───────────────────────────────────────────────────── */
+function NumInput({
+  label, value, onChange, min, max, step = 0.01, className = "",
+}: {
+  label: string; value: number; onChange: (v: number) => void;
+  min?: number; max?: number; step?: number; className?: string;
+}) {
+  return (
+    <label className={`flex flex-col gap-0.5 ${className}`}>
+      <span className="text-[10px] text-gray-400 uppercase tracking-wider">{label}</span>
+      <input
+        type="number"
+        className="input-field text-xs py-1 w-full"
+        value={value}
+        min={min}
+        max={max}
+        step={step}
+        onChange={(e) => onChange(Number(e.target.value))}
+      />
+    </label>
+  );
+}
+
+function Toggle({ label, checked, onChange }: { label: string; checked: boolean; onChange: (v: boolean) => void }) {
+  return (
+    <label className="flex items-center gap-2 cursor-pointer select-none">
+      <span className="relative inline-block w-9 h-5">
+        <input type="checkbox" className="sr-only" checked={checked} onChange={(e) => onChange(e.target.checked)} />
+        <span className={`absolute inset-0 rounded-full transition-colors ${checked ? "bg-[#006DAE]" : "bg-gray-300"}`} />
+        <span className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${checked ? "translate-x-4" : ""}`} />
+      </span>
+      <span className="text-xs text-gray-600">{label}</span>
+    </label>
+  );
+}
+
+function Section({ title, children }: { title: string; children: React.ReactNode }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="border border-gray-200 rounded-lg overflow-hidden">
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className="w-full flex items-center justify-between px-3 py-2 text-xs font-semibold text-gray-600 bg-gray-50 hover:bg-gray-100 transition-colors"
+      >
+        {title}
+        <svg className={`w-3.5 h-3.5 transition-transform ${open ? "rotate-180" : ""}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <path d="M19 9l-7 7-7-7" />
+        </svg>
+      </button>
+      {open && <div className="p-3 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 bg-white">{children}</div>}
+    </div>
+  );
+}
+
+/* ─── Default configs ─────────────────────────────────────────────────── */
+const DEFAULT_HYPERPARAMS = {
+  max_iter: 300, max_depth: 8, learning_rate: 0.05,
+  min_samples_leaf: 10, l2_regularization: 0.0, max_bins: 255,
+  early_stopping: true, n_iter_no_change: 10, validation_fraction: 0.1,
+};
+const DEFAULT_TUNING = {
+  enabled: false, method: "random" as "random" | "grid",
+  n_iter: 30, cv_folds: 5,
+  scoring: "neg_mean_absolute_percentage_error" as const,
+};
+const DEFAULT_FEATURES = {
+  extra_lags: "", rolling_windows: "7",
+  include_demand_supply_ratio: true, include_price_momentum: true,
+  include_ema: true, ema_span: 7,
+};
+const DEFAULT_BID_OPT: BidOptConfig & { useOverrides: boolean } = {
+  useOverrides: false,
+  price_offset: 0.0, risk_tolerance: 0.6, volume_scale: 1.0, per_block_cap_factor: 4.0,
+};
+
+/* ═══════════════════════════════════════════════════════════════════════ */
+export default function TradingDeskPage() {
+  const [tab, setTab] = useState<"forecast" | "bids">("forecast");
+
+  /* ── Shared ── */
   const [segment, setSegment] = useState("DAM");
   const [targetDate, setTargetDate] = useState(getTomorrowDate());
+
+  /* ── Forecast tab ── */
   const [blocks, setBlocks] = useState<ForecastBlock[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [forecasting, setForecasting] = useState(false);
   const [training, setTraining] = useState(false);
   const [trainResult, setTrainResult] = useState<any>(null);
-  const [selectedBlock, setSelectedBlock] = useState<ForecastBlock | null>(
-    null,
-  );
+  const [selectedBlock, setSelectedBlock] = useState<ForecastBlock | null>(null);
   const [isStale, setIsStale] = useState(false);
-  const [dataTimestamp, setDataTimestamp] = useState<string>("");
-  const [offlineError, setOfflineError] = useState<string>("");
+  const [offlineError, setOfflineError] = useState("");
 
+  // Train config state
+  const [testSize, setTestSize] = useState(0.2);
+  const [shuffle, setShuffle] = useState(false);
+  const [hp, setHp] = useState({ ...DEFAULT_HYPERPARAMS });
+  const [tuning, setTuning] = useState({ ...DEFAULT_TUNING });
+  const [features, setFeatures] = useState({ ...DEFAULT_FEATURES });
+
+  /* ── Bids tab ── */
+  const [strategy, setStrategy] = useState("balanced");
+  const [demandMw, setDemandMw] = useState(500);
+  const [bidOpt, setBidOpt] = useState({ ...DEFAULT_BID_OPT });
+  const [bids, setBids] = useState<BidRow[]>([]);
+  const [bidLoading, setBidLoading] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [submitResult, setSubmitResult] = useState<any>(null);
+  const [validationResult, setValidationResult] = useState<any>(null);
+  const [editingBlock, setEditingBlock] = useState<number | null>(null);
+  const [liveRisk, setLiveRisk] = useState<any>(null);
+  const [riskLoading, setRiskLoading] = useState(false);
+  const [riskTimestamp, setRiskTimestamp] = useState("");
+  const riskDebounceRef = useRef<NodeJS.Timeout | null>(null);
+
+  /* ── Auto risk on bid change ── */
+  useEffect(() => {
+    if (bids.length === 0) { setLiveRisk(null); return; }
+    if (riskDebounceRef.current) clearTimeout(riskDebounceRef.current);
+    riskDebounceRef.current = setTimeout(async () => {
+      setRiskLoading(true);
+      try {
+        const r = await assessRisk(`live-${Date.now()}`, segment, bids.map((b) => ({
+          block: b.block, segment: b.segment, price: b.price, volume_mw: b.volume_mw,
+        })));
+        setLiveRisk(r);
+        setRiskTimestamp(new Date().toLocaleTimeString());
+      } catch { /* silent */ }
+      setRiskLoading(false);
+    }, 600);
+    return () => { if (riskDebounceRef.current) clearTimeout(riskDebounceRef.current); };
+  }, [bids, segment]);
+
+  /* ── Handlers: Forecast ── */
   const handlePredict = async () => {
-    setLoading(true);
-    setIsStale(false);
-    setOfflineError("");
+    setForecasting(true); setIsStale(false); setOfflineError("");
     try {
       const data = await predictPrices(targetDate, segment);
       setBlocks(data.blocks);
       setSelectedBlock(data.blocks[0]);
-      setDataTimestamp(new Date().toLocaleTimeString());
     } catch (e: any) {
-      // Graceful degradation: try cached forecast
       try {
         const cached = await getLatestForecast(segment);
-        setBlocks(cached.blocks);
-        setSelectedBlock(cached.blocks[0]);
-        setIsStale(true);
-        setDataTimestamp(new Date().toLocaleTimeString());
-        setOfflineError(
-          e.response?.data?.detail ||
-            "Live forecast unavailable — showing last cached prediction."
-        );
+        setBlocks(cached.blocks); setSelectedBlock(cached.blocks[0]); setIsStale(true);
+        setOfflineError(e.response?.data?.detail || "Live forecast unavailable — showing last cached prediction.");
       } catch {
-        setOfflineError(
-          "Data feed offline. No cached forecasts available. Please check backend connectivity."
-        );
+        setOfflineError("Data feed offline. No cached forecasts available.");
       }
     }
-    setLoading(false);
-  };
-
-  const handleExportCsv = async () => {
-    try {
-      const blob = await exportForecastCsv(segment);
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `forecast_${segment}_${targetDate}.csv`;
-      a.click();
-      URL.revokeObjectURL(url);
-    } catch {
-      alert("No forecast data to export.");
-    }
+    setForecasting(false);
   };
 
   const handleTrain = async () => {
-    setTraining(true);
+    setTraining(true); setTrainResult(null);
+    const config: TrainConfig = {
+      segment,
+      test_size: testSize,
+      shuffle,
+      hyperparams: { ...hp },
+      features: {
+        extra_lags: features.extra_lags.split(",").map((s) => parseInt(s.trim())).filter((n) => !isNaN(n) && n > 0),
+        rolling_windows: features.rolling_windows.split(",").map((s) => parseInt(s.trim())).filter((n) => !isNaN(n) && n > 0),
+        include_demand_supply_ratio: features.include_demand_supply_ratio,
+        include_price_momentum: features.include_price_momentum,
+        include_ema: features.include_ema,
+        ema_span: features.ema_span,
+      },
+      tuning: tuning.enabled ? {
+        method: tuning.method, n_iter: tuning.n_iter,
+        cv_folds: tuning.cv_folds, scoring: tuning.scoring,
+      } : null,
+    };
     try {
-      const result = await trainModel(segment);
+      const result = await trainModel(config);
       setTrainResult(result);
     } catch (e: any) {
       alert(e.response?.data?.detail || "Training failed");
@@ -94,303 +237,512 @@ export default function ForecastPage() {
     setTraining(false);
   };
 
+  const handleExportCsv = async () => {
+    try {
+      const blob = await exportForecastCsv(segment);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a"); a.href = url;
+      a.download = `forecast_${segment}_${targetDate}.csv`; a.click();
+      URL.revokeObjectURL(url);
+    } catch { alert("No forecast data to export."); }
+  };
+
+  /* ── Handlers: Bids ── */
+  const handleRecommend = async () => {
+    setBidLoading(true); setSubmitResult(null); setValidationResult(null);
+    try {
+      const overrides: BidOptConfig = bidOpt.useOverrides
+        ? { price_offset: bidOpt.price_offset, risk_tolerance: bidOpt.risk_tolerance, volume_scale: bidOpt.volume_scale, per_block_cap_factor: bidOpt.per_block_cap_factor }
+        : {};
+      const recs = await recommendBids(targetDate, strategy, segment, demandMw, overrides);
+      setBids(recs.map((r: any) => ({ ...r, is_overridden: false, override_reason: "" })));
+    } catch (e: any) {
+      alert(e.response?.data?.detail || "Failed to generate recommendations. Run forecast first.");
+    }
+    setBidLoading(false);
+  };
+
+  const handleCellEdit = (block: number, field: "price" | "volume_mw", value: string) => {
+    const num = parseFloat(value);
+    if (isNaN(num)) return;
+    setBids((prev) => prev.map((b) => b.block === block ? { ...b, [field]: num, is_overridden: true } : b));
+  };
+
+  const handleValidate = async () => {
+    try {
+      const r = await validateBids(targetDate, strategy, segment, bids.map((b) => ({
+        block: b.block, segment: b.segment, price: b.price, volume_mw: b.volume_mw,
+        is_overridden: b.is_overridden, override_reason: b.override_reason || undefined,
+      })));
+      setValidationResult(r);
+    } catch { alert("Validation failed"); }
+  };
+
+  const handleSubmit = async () => {
+    setSubmitting(true);
+    try {
+      const r = await submitBids(targetDate, strategy, segment, bids.map((b) => ({
+        block: b.block, segment: b.segment, price: b.price, volume_mw: b.volume_mw,
+        is_overridden: b.is_overridden, override_reason: b.override_reason || undefined,
+      })));
+      setSubmitResult(r);
+    } catch (e: any) { alert(e.response?.data?.detail || "Submission failed"); }
+    setSubmitting(false);
+  };
+
+  /* ── Derived ── */
   const chartData = blocks.map((b) => ({
-    block: b.block,
-    time: blockToTime(b.block),
-    price: b.predicted_price,
-    low: b.confidence_low,
-    high: b.confidence_high,
-    range: [b.confidence_low, b.confidence_high],
+    block: b.block, time: blockToTime(b.block),
+    price: b.predicted_price, low: b.confidence_low, high: b.confidence_high,
   }));
+  const peakBlock = blocks.length ? blocks.reduce((a, b) => a.predicted_price > b.predicted_price ? a : b) : null;
+  const minBlock = blocks.length ? blocks.reduce((a, b) => a.predicted_price < b.predicted_price ? a : b) : null;
+  const avgPrice = blocks.length ? blocks.reduce((s, b) => s + b.predicted_price, 0) / blocks.length : 0;
+  const totalVolume = bids.reduce((s, b) => s + b.volume_mw, 0);
+  const avgBidPrice = bids.length ? bids.reduce((s, b) => s + b.price, 0) / bids.length : 0;
+  const overrideCount = bids.filter((b) => b.is_overridden).length;
+  const violationCount = bids.reduce((s, b) => s + (b.constraint_violations?.length || 0), 0);
 
-  const peakBlock = blocks.length
-    ? blocks.reduce((a, b) => (a.predicted_price > b.predicted_price ? a : b))
-    : null;
-  const minBlock = blocks.length
-    ? blocks.reduce((a, b) => (a.predicted_price < b.predicted_price ? a : b))
-    : null;
-  const avgPrice = blocks.length
-    ? blocks.reduce((s, b) => s + b.predicted_price, 0) / blocks.length
-    : 0;
-
+  /* ═══ RENDER ════════════════════════════════════════════════════════ */
   return (
-    <div className="max-w-7xl mx-auto">
-      <div className="flex items-center justify-between mb-6">
+    <div className="max-w-7xl mx-auto space-y-4">
+      {/* Header + tabs */}
+      <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold">Price Forecast</h1>
-          <p className="text-gray-400 text-sm">
-            96-block price predictions with confidence intervals
-          </p>
+          <h1 className="text-xl font-bold text-gray-900">Trading Desk</h1>
+          <p className="text-gray-500 text-xs mt-0.5">Forecast · Train · Optimise · Bid</p>
         </div>
-        <button
-          onClick={handleTrain}
-          disabled={training}
-          className="btn-secondary text-sm"
-        >
-          {training ? "Training..." : `Train ${segment} Model`}
-        </button>
-      </div>
-
-      {trainResult && (
-        <div className="card mb-4 bg-green-900/20 border-green-600/30">
-          <p className="text-green-400 text-sm">
-            Model trained — MAPE: {trainResult.metrics.mape}% | Train:{" "}
-            {trainResult.metrics.train_size.toLocaleString()} | Test:{" "}
-            {trainResult.metrics.test_size.toLocaleString()}
-          </p>
-        </div>
-      )}
-
-      {/* Controls */}
-      <div className="card mb-6">
-        <div className="flex items-end gap-4">
-          <div>
-            <label className="block text-xs text-gray-400 mb-1">
-              Target Date
-            </label>
-            <input
-              type="date"
-              value={targetDate}
-              onChange={(e) => setTargetDate(e.target.value)}
-              className="input-field"
-            />
-          </div>
-          <div>
-            <label className="block text-xs text-gray-400 mb-1">Segment</label>
-            <select
-              value={segment}
-              onChange={(e) => setSegment(e.target.value)}
-              className="select-field"
-            >
-              {SEGMENTS.map((s) => (
-                <option key={s} value={s}>
-                  {s}
-                </option>
-              ))}
-            </select>
-          </div>
-          <button
-            onClick={handlePredict}
-            disabled={loading}
-            className="btn-primary"
-          >
-            {loading ? "Forecasting..." : "Generate Forecast"}
-          </button>
-          {blocks.length > 0 && (
-            <button onClick={handleExportCsv} className="btn-secondary text-sm">
-              Download CSV
+        <div className="flex rounded-lg overflow-hidden border border-gray-200 text-sm font-medium">
+          {(["forecast", "bids"] as const).map((t) => (
+            <button key={t} onClick={() => setTab(t)}
+              className={`px-5 py-2 transition-colors capitalize ${tab === t ? "bg-[#006DAE] text-white" : "bg-white text-gray-600 hover:bg-gray-50"}`}>
+              {t === "forecast" ? "Price Forecast" : "Bid Optimiser"}
             </button>
-          )}
+          ))}
         </div>
       </div>
 
-      {/* Offline / stale data banner */}
-      {offlineError && (
-        <div
-          className={`card mb-4 ${isStale ? "bg-yellow-900/20 border-yellow-600/30" : "bg-red-900/20 border-red-600/30"}`}
-        >
-          <div className="flex items-center gap-3">
-            <span className="text-xl">{isStale ? "⚠️" : "🔴"}</span>
-            <div className="flex-1">
-              <h3
-                className={`font-semibold text-sm ${isStale ? "text-yellow-400" : "text-red-400"}`}
-              >
-                {isStale ? "Data Feed Offline — Showing Cached Data" : "Data Feed Offline"}
-              </h3>
-              <p className="text-xs text-gray-400">{offlineError}</p>
-            </div>
-            {isStale && (
-              <span className="text-xs text-gray-500">
-                Retrieved at {dataTimestamp}
-              </span>
-            )}
-            {blocks.length > 0 && (
-              <button
-                onClick={handleExportCsv}
-                className="btn-secondary text-xs px-3 py-1"
-              >
-                Export CSV for Manual Upload
-              </button>
-            )}
-          </div>
+      {/* Shared controls row */}
+      <div className="card flex items-end gap-4 flex-wrap">
+        <div>
+          <label className="block text-[10px] text-gray-400 uppercase tracking-wider mb-1">Segment</label>
+          <select value={segment} onChange={(e) => setSegment(e.target.value)} className="select-field">
+            {SEGMENTS.map((s) => <option key={s} value={s}>{s}</option>)}
+          </select>
         </div>
-      )}
+        <div>
+          <label className="block text-[10px] text-gray-400 uppercase tracking-wider mb-1">Target Date</label>
+          <input type="date" value={targetDate} onChange={(e) => setTargetDate(e.target.value)} className="input-field" />
+        </div>
+        {tab === "forecast" ? (
+          <>
+            <button onClick={handlePredict} disabled={forecasting} className="btn-primary">
+              {forecasting ? "Forecasting…" : "Generate Forecast"}
+            </button>
+            <button onClick={handleTrain} disabled={training} className="btn-secondary text-sm">
+              {training ? "Training…" : `Train ${segment} Model`}
+            </button>
+            {blocks.length > 0 && (
+              <button onClick={handleExportCsv} className="btn-secondary text-sm">Download CSV</button>
+            )}
+          </>
+        ) : (
+          <>
+            <div>
+              <label className="block text-[10px] text-gray-400 uppercase tracking-wider mb-1">Strategy</label>
+              <div className="flex rounded-lg overflow-hidden border border-gray-200">
+                {STRATEGIES.map((s) => (
+                  <button key={s} onClick={() => setStrategy(s)}
+                    className={`px-3 py-1.5 text-xs capitalize transition-colors ${strategy === s
+                      ? s === "conservative" ? "bg-green-600 text-white" : s === "balanced" ? "bg-[#006DAE] text-white" : "bg-red-500 text-white"
+                      : "bg-white text-gray-500 hover:bg-gray-50"}`}>
+                    {s}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div>
+              <label className="block text-[10px] text-gray-400 uppercase tracking-wider mb-1">Demand (MW)</label>
+              <input type="number" value={demandMw} onChange={(e) => setDemandMw(Number(e.target.value))} className="input-field w-24" />
+            </div>
+            <button onClick={handleRecommend} disabled={bidLoading} className="btn-primary">
+              {bidLoading ? "Optimising…" : "Get AI Recommendations"}
+            </button>
+          </>
+        )}
+      </div>
 
-      {blocks.length > 0 && (
-        <>
-          {/* Summary cards */}
-          <div className="grid grid-cols-4 gap-4 mb-6">
-            <div className="card text-center">
-              <div className="text-xs text-gray-400">Average Price</div>
-              <div className="text-2xl font-bold text-blue-400">
-                ₹{avgPrice.toFixed(2)}
-              </div>
-              <div className="text-xs text-gray-500">INR/kWh</div>
-            </div>
-            <div className="card text-center">
-              <div className="text-xs text-gray-400">Peak Price</div>
-              <div className="text-2xl font-bold text-red-400">
-                ₹{peakBlock?.predicted_price.toFixed(2)}
-              </div>
-              <div className="text-xs text-gray-500">
-                Block {peakBlock?.block} ({blockToTime(peakBlock?.block || 1)})
+      {/* ─── FORECAST TAB ───────────────────────────────────────────── */}
+      {tab === "forecast" && (
+        <div className="space-y-4">
+          {/* Advanced config */}
+          <div className="card space-y-3">
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Model Configuration</p>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <NumInput label="Test Size" value={testSize} onChange={setTestSize} min={0.05} max={0.45} step={0.05} />
+              <div className="flex items-end pb-1">
+                <Toggle label="Shuffle training data" checked={shuffle} onChange={setShuffle} />
               </div>
             </div>
-            <div className="card text-center">
-              <div className="text-xs text-gray-400">Lowest Price</div>
-              <div className="text-2xl font-bold text-green-400">
-                ₹{minBlock?.predicted_price.toFixed(2)}
+            <Section title="Hyperparameters (HistGradientBoosting)">
+              <NumInput label="Max Iterations" value={hp.max_iter} onChange={(v) => setHp((p) => ({ ...p, max_iter: v }))} min={50} max={5000} step={50} />
+              <NumInput label="Max Depth" value={hp.max_depth} onChange={(v) => setHp((p) => ({ ...p, max_depth: v }))} min={2} max={30} step={1} />
+              <NumInput label="Learning Rate" value={hp.learning_rate} onChange={(v) => setHp((p) => ({ ...p, learning_rate: v }))} min={0.001} max={1} step={0.005} />
+              <NumInput label="Min Samples Leaf" value={hp.min_samples_leaf} onChange={(v) => setHp((p) => ({ ...p, min_samples_leaf: v }))} min={1} max={200} step={1} />
+              <NumInput label="L2 Regularisation" value={hp.l2_regularization} onChange={(v) => setHp((p) => ({ ...p, l2_regularization: v }))} min={0} max={10} step={0.1} />
+              <NumInput label="Max Bins" value={hp.max_bins} onChange={(v) => setHp((p) => ({ ...p, max_bins: v }))} min={10} max={255} step={5} />
+              <NumInput label="N Iter No Change" value={hp.n_iter_no_change} onChange={(v) => setHp((p) => ({ ...p, n_iter_no_change: v }))} min={1} max={100} step={1} />
+              <NumInput label="Val Fraction" value={hp.validation_fraction} onChange={(v) => setHp((p) => ({ ...p, validation_fraction: v }))} min={0.05} max={0.4} step={0.05} />
+              <div className="col-span-2 flex items-center pt-1">
+                <Toggle label="Early stopping" checked={hp.early_stopping} onChange={(v) => setHp((p) => ({ ...p, early_stopping: v }))} />
               </div>
-              <div className="text-xs text-gray-500">
-                Block {minBlock?.block} ({blockToTime(minBlock?.block || 1)})
+            </Section>
+            <Section title="Feature Engineering">
+              <label className="flex flex-col gap-0.5 col-span-2">
+                <span className="text-[10px] text-gray-400 uppercase tracking-wider">Extra Lag Days (comma-separated)</span>
+                <input className="input-field text-xs py-1" value={features.extra_lags} placeholder="e.g. 2,3,14"
+                  onChange={(e) => setFeatures((p) => ({ ...p, extra_lags: e.target.value }))} />
+              </label>
+              <label className="flex flex-col gap-0.5 col-span-2">
+                <span className="text-[10px] text-gray-400 uppercase tracking-wider">Rolling Windows (days)</span>
+                <input className="input-field text-xs py-1" value={features.rolling_windows} placeholder="e.g. 7,14"
+                  onChange={(e) => setFeatures((p) => ({ ...p, rolling_windows: e.target.value }))} />
+              </label>
+              <NumInput label="EMA Span" value={features.ema_span} onChange={(v) => setFeatures((p) => ({ ...p, ema_span: v }))} min={2} max={30} step={1} />
+              <div className="col-span-3 flex flex-wrap gap-4 items-center pt-1">
+                <Toggle label="D/S ratio" checked={features.include_demand_supply_ratio} onChange={(v) => setFeatures((p) => ({ ...p, include_demand_supply_ratio: v }))} />
+                <Toggle label="Price momentum" checked={features.include_price_momentum} onChange={(v) => setFeatures((p) => ({ ...p, include_price_momentum: v }))} />
+                <Toggle label="EMA" checked={features.include_ema} onChange={(v) => setFeatures((p) => ({ ...p, include_ema: v }))} />
               </div>
-            </div>
-            <div className="card text-center">
-              <div className="text-xs text-gray-400">Avg Volatility</div>
-              <div className="text-2xl font-bold text-amber-400">
-                ₹
-                {(
-                  blocks.reduce((s, b) => s + b.volatility, 0) / blocks.length
-                ).toFixed(2)}
+            </Section>
+            <Section title="Auto-Tuning (Hyperparameter Search)">
+              <div className="col-span-4 flex items-center gap-6 pb-1">
+                <Toggle label="Enable auto-tuning" checked={tuning.enabled} onChange={(v) => setTuning((p) => ({ ...p, enabled: v }))} />
               </div>
-              <div className="text-xs text-gray-500">INR/kWh</div>
-            </div>
+              <label className="flex flex-col gap-0.5">
+                <span className="text-[10px] text-gray-400 uppercase tracking-wider">Method</span>
+                <select className="select-field text-xs py-1" value={tuning.method} onChange={(e) => setTuning((p) => ({ ...p, method: e.target.value as any }))}>
+                  <option value="random">Random Search</option>
+                  <option value="grid">Grid Search</option>
+                </select>
+              </label>
+              <NumInput label="Iterations" value={tuning.n_iter} onChange={(v) => setTuning((p) => ({ ...p, n_iter: v }))} min={5} max={200} step={5} />
+              <NumInput label="CV Folds" value={tuning.cv_folds} onChange={(v) => setTuning((p) => ({ ...p, cv_folds: v }))} min={2} max={10} step={1} />
+              <label className="flex flex-col gap-0.5">
+                <span className="text-[10px] text-gray-400 uppercase tracking-wider">Scoring</span>
+                <select className="select-field text-xs py-1" value={tuning.scoring} onChange={(e) => setTuning((p) => ({ ...p, scoring: e.target.value as any }))}>
+                  <option value="neg_mean_absolute_percentage_error">MAPE</option>
+                  <option value="neg_mean_squared_error">MSE</option>
+                  <option value="r2">R²</option>
+                </select>
+              </label>
+            </Section>
           </div>
 
-          {/* Main chart */}
-          <div className="card mb-6">
-            <h2 className="text-sm font-semibold mb-4 text-gray-300">
-              Price Forecast — {segment} — {targetDate}
-            </h2>
-            <ResponsiveContainer width="100%" height={350}>
-              <AreaChart data={chartData}>
-                <defs>
-                  <linearGradient id="confGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.2} />
-                    <stop offset="95%" stopColor="#3b82f6" stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="#1e2d3d" />
-                <XAxis
-                  dataKey="time"
-                  stroke="#6b7280"
-                  fontSize={10}
-                  interval={7}
-                />
-                <YAxis stroke="#6b7280" fontSize={11} />
-                <Tooltip
-                  contentStyle={{
-                    background: "#1a2332",
-                    border: "1px solid #1e2d3d",
-                    borderRadius: "8px",
-                    fontSize: "12px",
-                  }}
-                  formatter={(val: number) => `₹${val.toFixed(2)}`}
-                />
-                <Legend />
-                <Area
-                  type="monotone"
-                  dataKey="high"
-                  stroke="transparent"
-                  fill="url(#confGrad)"
-                  name="Confidence High"
-                />
-                <Area
-                  type="monotone"
-                  dataKey="low"
-                  stroke="transparent"
-                  fill="#0a0f1a"
-                  name="Confidence Low"
-                />
-                <Line
-                  type="monotone"
-                  dataKey="price"
-                  stroke="#3b82f6"
-                  strokeWidth={2}
-                  dot={false}
-                  name="Predicted Price"
-                />
-              </AreaChart>
-            </ResponsiveContainer>
-          </div>
-
-          {/* Feature importance for selected block */}
-          <div className="grid grid-cols-3 gap-4">
-            <div className="col-span-2 card">
-              <h2 className="text-sm font-semibold mb-3 text-gray-300">
-                Block Details (click to select)
-              </h2>
-              <div className="max-h-64 overflow-y-auto">
-                <table className="w-full text-xs">
-                  <thead className="text-gray-400 sticky top-0 bg-[#1a2332]">
-                    <tr>
-                      <th className="text-left py-1 px-2">Block</th>
-                      <th className="text-left py-1 px-2">Time</th>
-                      <th className="text-right py-1 px-2">Price</th>
-                      <th className="text-right py-1 px-2">Low</th>
-                      <th className="text-right py-1 px-2">High</th>
-                      <th className="text-right py-1 px-2">Volatility</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {blocks.map((b) => (
-                      <tr
-                        key={b.block}
-                        className={`cursor-pointer transition-colors ${
-                          selectedBlock?.block === b.block
-                            ? "bg-blue-900/30"
-                            : "hover:bg-gray-800/50"
-                        }`}
-                        onClick={() => setSelectedBlock(b)}
-                      >
-                        <td className="py-1 px-2">{b.block}</td>
-                        <td className="py-1 px-2 text-gray-400">
-                          {blockToTime(b.block)}
-                        </td>
-                        <td className="py-1 px-2 text-right font-medium">
-                          ₹{b.predicted_price.toFixed(2)}
-                        </td>
-                        <td className="py-1 px-2 text-right text-gray-400">
-                          ₹{b.confidence_low.toFixed(2)}
-                        </td>
-                        <td className="py-1 px-2 text-right text-gray-400">
-                          ₹{b.confidence_high.toFixed(2)}
-                        </td>
-                        <td className="py-1 px-2 text-right text-amber-400">
-                          {b.volatility.toFixed(3)}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+          {trainResult && (
+            <div className="card bg-green-50 border-green-200">
+              <p className="text-green-700 text-sm font-medium">
+                Model trained — MAPE: {trainResult.metrics?.mape}% · Train: {trainResult.metrics?.train_size?.toLocaleString()} · Test: {trainResult.metrics?.test_size?.toLocaleString()}
+              </p>
             </div>
+          )}
 
-            <div className="card">
-              <h2 className="text-sm font-semibold mb-3 text-gray-300">
-                Top Features — Block {selectedBlock?.block}
-              </h2>
-              {selectedBlock?.top_features.map((f, i) => (
-                <div key={f.feature} className="mb-3">
-                  <div className="flex justify-between text-xs mb-1">
-                    <span className="text-gray-300">{f.feature}</span>
-                    <span className="text-blue-400">
-                      {(f.importance * 100).toFixed(1)}%
-                    </span>
+          {offlineError && (
+            <div className={`card ${isStale ? "bg-yellow-50 border-yellow-200" : "bg-red-50 border-red-200"}`}>
+              <p className={`text-sm font-medium ${isStale ? "text-yellow-700" : "text-red-700"}`}>{offlineError}</p>
+            </div>
+          )}
+
+          {blocks.length > 0 && (
+            <>
+              <div className="grid grid-cols-4 gap-3">
+                {[
+                  { label: "Avg Price", val: `₹${avgPrice.toFixed(2)}`, color: "text-[#006DAE]" },
+                  { label: "Peak", val: `₹${peakBlock?.predicted_price.toFixed(2)}`, sub: `Block ${peakBlock?.block}`, color: "text-red-500" },
+                  { label: "Trough", val: `₹${minBlock?.predicted_price.toFixed(2)}`, sub: `Block ${minBlock?.block}`, color: "text-green-600" },
+                  { label: "Avg Volatility", val: `₹${(blocks.reduce((s, b) => s + b.volatility, 0) / blocks.length).toFixed(3)}`, color: "text-amber-500" },
+                ].map(({ label, val, sub, color }) => (
+                  <div key={label} className="card text-center py-3">
+                    <div className="text-[10px] text-gray-400 uppercase tracking-wider">{label}</div>
+                    <div className={`text-xl font-bold ${color}`}>{val}</div>
+                    {sub && <div className="text-[10px] text-gray-400">{sub}</div>}
                   </div>
-                  <div className="w-full bg-gray-700 rounded-full h-2">
-                    <div
-                      className="bg-blue-500 h-2 rounded-full"
-                      style={{
-                        width: `${Math.min(f.importance * 100 * 3, 100)}%`,
-                      }}
-                    />
+                ))}
+              </div>
+
+              <div className="card">
+                <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-4">
+                  Price Forecast — {segment} — {targetDate}
+                </h2>
+                <ResponsiveContainer width="100%" height={300}>
+                  <AreaChart data={chartData}>
+                    <defs>
+                      <linearGradient id="confGrad" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#006DAE" stopOpacity={0.15} />
+                        <stop offset="95%" stopColor="#006DAE" stopOpacity={0} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" vertical={false} />
+                    <XAxis dataKey="time" stroke="#D1D5DB" fontSize={9} interval={7} tick={{ fill: "#9CA3AF" }} tickLine={false} />
+                    <YAxis stroke="#D1D5DB" fontSize={9} tick={{ fill: "#9CA3AF" }} tickLine={false} axisLine={false} tickFormatter={(v) => `₹${v}`} width={40} />
+                    <Tooltip contentStyle={{ background: "#fff", border: "1px solid #E2E8F0", borderRadius: "8px", fontSize: "11px" }} formatter={(v: number) => `₹${v.toFixed(3)}`} />
+                    <Legend wrapperStyle={{ fontSize: "10px" }} />
+                    <Area type="monotone" dataKey="high" stroke="transparent" fill="url(#confGrad)" name="CI High" legendType="none" />
+                    <Area type="monotone" dataKey="low" stroke="transparent" fill="#fff" name="CI Low" legendType="none" />
+                    <Area type="monotone" dataKey="price" stroke="#006DAE" strokeWidth={2} fill="url(#confGrad)" dot={false} name="Predicted Price" />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
+
+              <div className="grid grid-cols-3 gap-4">
+                <div className="col-span-2 card">
+                  <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Block Details</h2>
+                  <div className="max-h-64 overflow-y-auto">
+                    <table className="w-full text-xs">
+                      <thead className="text-gray-400 sticky top-0 bg-white">
+                        <tr>
+                          {["Block", "Time", "Price", "Low", "High", "Volatility"].map((h) => (
+                            <th key={h} className={`py-1.5 px-2 ${h !== "Block" && h !== "Time" ? "text-right" : "text-left"}`}>{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {blocks.map((b) => (
+                          <tr key={b.block} onClick={() => setSelectedBlock(b)}
+                            className={`cursor-pointer border-t border-gray-100 transition-colors ${selectedBlock?.block === b.block ? "bg-blue-50" : "hover:bg-gray-50"}`}>
+                            <td className="py-1 px-2">{b.block}</td>
+                            <td className="py-1 px-2 text-gray-400">{blockToTime(b.block)}</td>
+                            <td className="py-1 px-2 text-right font-medium text-gray-800">₹{b.predicted_price.toFixed(3)}</td>
+                            <td className="py-1 px-2 text-right text-gray-400">₹{b.confidence_low.toFixed(3)}</td>
+                            <td className="py-1 px-2 text-right text-gray-400">₹{b.confidence_high.toFixed(3)}</td>
+                            <td className="py-1 px-2 text-right text-amber-500">{b.volatility.toFixed(4)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
                   </div>
                 </div>
-              ))}
+                <div className="card">
+                  <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">
+                    Feature Importance — Block {selectedBlock?.block}
+                  </h2>
+                  {selectedBlock?.top_features.map((f) => (
+                    <div key={f.feature} className="mb-3">
+                      <div className="flex justify-between text-xs mb-1">
+                        <span className="text-gray-600">{f.feature}</span>
+                        <span className="text-[#006DAE] font-medium">{(f.importance * 100).toFixed(1)}%</span>
+                      </div>
+                      <div className="w-full bg-gray-100 rounded-full h-1.5">
+                        <div className="bg-[#006DAE] h-1.5 rounded-full" style={{ width: `${Math.min(f.importance * 100 * 3, 100)}%` }} />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* ─── BIDS TAB ───────────────────────────────────────────────── */}
+      {tab === "bids" && (
+        <div className="space-y-4">
+          {/* LP override config */}
+          <div className="card space-y-3">
+            <div className="flex items-center justify-between">
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">LP Optimiser Overrides</p>
+              <Toggle label="Override strategy defaults" checked={bidOpt.useOverrides} onChange={(v) => setBidOpt((p) => ({ ...p, useOverrides: v }))} />
             </div>
+            {bidOpt.useOverrides && (
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-1">
+                <div>
+                  <label className="block text-[10px] text-gray-400 uppercase tracking-wider mb-1">
+                    Price Offset <span className="normal-case text-gray-300">(pred ± offset×vol)</span>
+                  </label>
+                  <input type="range" min={-3} max={3} step={0.1} value={bidOpt.price_offset ?? 0}
+                    onChange={(e) => setBidOpt((p) => ({ ...p, price_offset: Number(e.target.value) }))}
+                    className="w-full accent-[#006DAE]" />
+                  <div className="text-center text-xs font-mono text-[#006DAE]">{(bidOpt.price_offset ?? 0).toFixed(1)}</div>
+                </div>
+                <div>
+                  <label className="block text-[10px] text-gray-400 uppercase tracking-wider mb-1">
+                    Risk Tolerance <span className="normal-case text-gray-300">(0=safe, 1=aggressive)</span>
+                  </label>
+                  <input type="range" min={0} max={1} step={0.05} value={bidOpt.risk_tolerance ?? 0.6}
+                    onChange={(e) => setBidOpt((p) => ({ ...p, risk_tolerance: Number(e.target.value) }))}
+                    className="w-full accent-[#006DAE]" />
+                  <div className="text-center text-xs font-mono text-[#006DAE]">{(bidOpt.risk_tolerance ?? 0.6).toFixed(2)}</div>
+                </div>
+                <div>
+                  <label className="block text-[10px] text-gray-400 uppercase tracking-wider mb-1">
+                    Volume Scale <span className="normal-case text-gray-300">(mult of demand_mw)</span>
+                  </label>
+                  <input type="range" min={0.1} max={2} step={0.05} value={bidOpt.volume_scale ?? 1}
+                    onChange={(e) => setBidOpt((p) => ({ ...p, volume_scale: Number(e.target.value) }))}
+                    className="w-full accent-[#006DAE]" />
+                  <div className="text-center text-xs font-mono text-[#006DAE]">{(bidOpt.volume_scale ?? 1).toFixed(2)}×</div>
+                </div>
+                <div>
+                  <label className="block text-[10px] text-gray-400 uppercase tracking-wider mb-1">
+                    Block Cap Factor <span className="normal-case text-gray-300">(max vol per block)</span>
+                  </label>
+                  <input type="range" min={1} max={10} step={0.5} value={bidOpt.per_block_cap_factor ?? 4}
+                    onChange={(e) => setBidOpt((p) => ({ ...p, per_block_cap_factor: Number(e.target.value) }))}
+                    className="w-full accent-[#006DAE]" />
+                  <div className="text-center text-xs font-mono text-[#006DAE]">{(bidOpt.per_block_cap_factor ?? 4).toFixed(1)}×</div>
+                </div>
+              </div>
+            )}
+            {!bidOpt.useOverrides && (
+              <p className="text-xs text-gray-400">
+                Using <span className="font-medium text-gray-600 capitalize">{strategy}</span> profile defaults:
+                price_offset = {strategy === "conservative" ? "−0.8" : strategy === "balanced" ? "0.0" : "+0.6"},
+                risk_tolerance = {strategy === "conservative" ? "0.3" : strategy === "balanced" ? "0.6" : "0.9"},
+                volume_scale = {strategy === "conservative" ? "0.85" : strategy === "balanced" ? "1.0" : "1.15"}
+              </p>
+            )}
           </div>
-        </>
+
+          {submitResult && (
+            <div className={`card ${submitResult.status === "submitted" ? "bg-green-50 border-green-200" : "bg-yellow-50 border-yellow-200"}`}>
+              <p className={`text-sm font-medium ${submitResult.status === "submitted" ? "text-green-700" : "text-yellow-700"}`}>
+                Bids {submitResult.status} · Session: {submitResult.session_id} · {submitResult.bid_count} bids · {submitResult.violations?.length || 0} violations
+              </p>
+            </div>
+          )}
+
+          {validationResult && (
+            <div className={`card ${validationResult.valid ? "bg-green-50 border-green-200" : "bg-red-50 border-red-200"}`}>
+              <p className={`text-sm font-medium ${validationResult.valid ? "text-green-700" : "text-red-700"}`}>
+                {validationResult.valid ? "All bids pass constraint validation" : `${validationResult.violation_count} constraint violation(s) found`}
+              </p>
+            </div>
+          )}
+
+          {bids.length > 0 && (
+            <>
+              <div className="grid grid-cols-4 gap-3">
+                {[
+                  { label: "Total Volume", val: `${totalVolume.toFixed(1)} MW`, color: "text-gray-800" },
+                  { label: "Avg Bid Price", val: `₹${avgBidPrice.toFixed(3)}`, color: "text-[#006DAE]" },
+                  { label: "Overrides", val: String(overrideCount), color: "text-amber-500" },
+                  { label: "Violations", val: String(violationCount), color: violationCount > 0 ? "text-red-500" : "text-green-600" },
+                ].map(({ label, val, color }) => (
+                  <div key={label} className="card text-center py-3">
+                    <div className="text-[10px] text-gray-400 uppercase tracking-wider">{label}</div>
+                    <div className={`text-xl font-bold ${color}`}>{val}</div>
+                  </div>
+                ))}
+              </div>
+
+              <div className="card">
+                <div className="flex justify-between items-center mb-3">
+                  <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                    Bid Table · {segment} · {strategy}
+                  </h2>
+                  <div className="flex gap-2">
+                    <button onClick={handleValidate} className="btn-secondary text-xs">Validate</button>
+                    <button onClick={handleSubmit} disabled={submitting} className="btn-primary text-xs">
+                      {submitting ? "Submitting…" : "Submit Bids"}
+                    </button>
+                  </div>
+                </div>
+                <div className="max-h-[480px] overflow-y-auto">
+                  <table className="w-full text-xs">
+                    <thead className="text-gray-400 sticky top-0 bg-white z-10">
+                      <tr>
+                        {["Block", "Time", "Price (₹/kWh)", "Volume (MW)", "Status", "Override Reason"].map((h, i) => (
+                          <th key={h} className={`py-2 px-2 ${i >= 2 ? "text-right" : "text-left"} ${i === 3 ? "text-center" : ""}`}>{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {bids.map((b) => {
+                        const hasViol = b.constraint_violations?.length > 0;
+                        return (
+                          <tr key={b.block} className={`border-t border-gray-100 ${hasViol ? "bg-red-50" : ""}`}>
+                            <td className="py-1.5 px-2 font-medium">{b.block}</td>
+                            <td className="py-1.5 px-2 text-gray-400">{blockToTime(b.block)}</td>
+                            <td className="py-1.5 px-2 text-right">
+                              <input type="number" step="0.001" value={b.price}
+                                onChange={(e) => handleCellEdit(b.block, "price", e.target.value)}
+                                className={`w-20 bg-transparent border-b text-right focus:outline-none focus:border-[#006DAE] ${hasViol ? "border-red-400 text-red-500" : b.is_overridden ? "border-amber-400 text-amber-600" : "border-gray-200 text-gray-800"}`} />
+                            </td>
+                            <td className="py-1.5 px-2 text-right">
+                              <input type="number" step="0.1" value={b.volume_mw}
+                                onChange={(e) => handleCellEdit(b.block, "volume_mw", e.target.value)}
+                                className={`w-20 bg-transparent border-b text-right focus:outline-none focus:border-[#006DAE] ${b.is_overridden ? "border-amber-400 text-amber-600" : "border-gray-200 text-gray-800"}`} />
+                            </td>
+                            <td className="py-1.5 px-2 text-center">
+                              {hasViol ? (
+                                <span className="text-[10px] bg-red-100 text-red-600 border border-red-200 px-1.5 py-0.5 rounded cursor-help"
+                                  title={b.constraint_violations.map((v: any) => v.message).join("; ")}>⚠ Violation</span>
+                              ) : b.is_overridden ? (
+                                <span className="text-[10px] bg-amber-50 text-amber-600 border border-amber-200 px-1.5 py-0.5 rounded">Edited</span>
+                              ) : (
+                                <span className="text-[10px] bg-blue-50 text-[#006DAE] border border-blue-200 px-1.5 py-0.5 rounded">AI</span>
+                              )}
+                            </td>
+                            <td className="py-1.5 px-2">
+                              {b.is_overridden && (
+                                editingBlock === b.block ? (
+                                  <select className="select-field text-xs py-0.5" value={b.override_reason} autoFocus onBlur={() => setEditingBlock(null)}
+                                    onChange={(e) => { setBids((prev) => prev.map((r) => r.block === b.block ? { ...r, override_reason: e.target.value } : r)); setEditingBlock(null); }}>
+                                    <option value="">Select reason…</option>
+                                    {OVERRIDE_REASONS.map((r) => <option key={r} value={r}>{r}</option>)}
+                                  </select>
+                                ) : (
+                                  <button onClick={() => setEditingBlock(b.block)} className="text-xs text-amber-500 hover:underline">
+                                    {b.override_reason || "Add reason…"}
+                                  </button>
+                                )
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {liveRisk && (
+                <>
+                  {liveRisk.alert_triggered && (
+                    <div className="card bg-red-50 border-red-300 animate-pulse">
+                      <div className="flex items-center gap-3">
+                        <span className="text-2xl">🚨</span>
+                        <div>
+                          <h3 className="text-red-600 font-bold text-sm">RISK ALERT</h3>
+                          <p className="text-red-500 text-xs">{liveRisk.alert_details?.message}</p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                  <div className="card">
+                    <div className="flex justify-between items-center mb-3">
+                      <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Live Risk Assessment</h2>
+                      <span className="text-[10px] text-gray-400">{riskLoading ? "Recalculating…" : `Updated ${riskTimestamp}`}</span>
+                    </div>
+                    <div className="grid grid-cols-4 gap-3">
+                      {[
+                        { label: "VaR (95%)", val: formatINR(liveRisk.var_95), color: "text-[#006DAE]" },
+                        { label: "DSM Penalty", val: formatINR(liveRisk.expected_dsm_penalty), color: "text-amber-500" },
+                        { label: "Worst Case", val: formatINR(liveRisk.worst_case_penalty), color: "text-red-500" },
+                        { label: "Total Exposure", val: formatINR(liveRisk.total_exposure), color: liveRisk.alert_triggered ? "text-red-500" : "text-green-600" },
+                      ].map(({ label, val, color }) => (
+                        <div key={label} className="text-center">
+                          <div className="text-[10px] text-gray-400 uppercase tracking-wider">{label}</div>
+                          <div className={`text-lg font-bold ${color}`}>{val}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </>
+              )}
+            </>
+          )}
+        </div>
       )}
     </div>
   );

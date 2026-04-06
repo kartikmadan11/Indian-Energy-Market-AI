@@ -112,6 +112,10 @@ def generate_recommendations(
     strategy: str,
     demand_mw: float,
     segment: str,
+    price_offset_override: float | None = None,
+    risk_tolerance_override: float | None = None,
+    volume_scale_override: float | None = None,
+    per_block_cap_factor: float = _PER_BLOCK_CAP_FACTOR,
 ) -> list[dict]:
     """
     Generate LP-optimised bid recommendations for all 96 blocks.
@@ -121,8 +125,9 @@ def generate_recommendations(
     value while penalising DSM deviation risk and forecast uncertainty.
     """
     profile = STRATEGY_PROFILES[strategy]
-    price_offset = profile["price_offset"]
-    risk_tolerance = profile["risk_tolerance"]
+    price_offset = price_offset_override if price_offset_override is not None else profile["price_offset"]
+    risk_tolerance = risk_tolerance_override if risk_tolerance_override is not None else profile["risk_tolerance"]
+    volume_scale = volume_scale_override if volume_scale_override is not None else profile["volume_scale"]
 
     # λ weights: higher risk_tolerance → lower penalty → more aggressive
     lambda1 = (1.0 - risk_tolerance) * 2.0  # DSM penalty weight
@@ -130,7 +135,7 @@ def generate_recommendations(
 
     # Uniform scheduled load per block (MW) — baseline for DSM deviation check
     load_per_block = demand_mw / NUM_BLOCKS
-    per_block_cap = load_per_block * _PER_BLOCK_CAP_FACTOR
+    per_block_cap = load_per_block * per_block_cap_factor
 
     # Pre-compute bid prices and CI widths (these are fixed, not LP variables)
     block_data: dict[int, dict] = {}
@@ -174,8 +179,8 @@ def generate_recommendations(
         for b in blocks
     )
 
-    # Constraint 1: total volume ≤ total daily demand
-    prob += lpSum(v[b] for b in blocks) <= demand_mw
+    # Constraint 1: total volume ≤ total daily demand × volume_scale
+    prob += lpSum(v[b] for b in blocks) <= demand_mw * volume_scale
 
     for b in blocks:
         load = load_per_block

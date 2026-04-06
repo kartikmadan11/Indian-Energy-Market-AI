@@ -6,8 +6,41 @@ const api = axios.create({
 });
 
 // ---- Forecast ----
-export async function trainModel(segment: string) {
-  const res = await api.post(`/forecast/train?segment=${segment}`);
+export interface TrainConfig {
+  segment: string;
+  test_size?: number;
+  shuffle?: boolean;
+  hyperparams?: {
+    max_iter?: number;
+    max_depth?: number | null;
+    learning_rate?: number;
+    min_samples_leaf?: number;
+    l2_regularization?: number;
+    max_bins?: number;
+    max_leaf_nodes?: number | null;
+    early_stopping?: boolean;
+    n_iter_no_change?: number;
+    validation_fraction?: number;
+  };
+  tuning?: {
+    method?: "grid" | "random";
+    n_iter?: number;
+    cv_folds?: number;
+    scoring?: "neg_mean_absolute_percentage_error" | "neg_mean_squared_error" | "r2";
+    param_grid?: Record<string, any> | null;
+  } | null;
+  features?: {
+    extra_lags?: number[];
+    rolling_windows?: number[];
+    include_demand_supply_ratio?: boolean;
+    include_price_momentum?: boolean;
+    include_ema?: boolean;
+    ema_span?: number;
+  };
+}
+
+export async function trainModel(config: TrainConfig) {
+  const res = await api.post("/forecast/train", config);
   return res.data;
 }
 
@@ -19,11 +52,19 @@ export async function predictPrices(targetDate: string, segment: string) {
 }
 
 // ---- Bids ----
+export interface BidOptConfig {
+  price_offset?: number | null;
+  risk_tolerance?: number | null;
+  volume_scale?: number | null;
+  per_block_cap_factor?: number;
+}
+
 export async function recommendBids(
   targetDate: string,
   strategy: string,
   segment: string,
-  demandMw: number = 500
+  demandMw: number = 500,
+  overrides: BidOptConfig = {}
 ) {
   const res = await api.get("/bids/recommend", {
     params: {
@@ -31,6 +72,10 @@ export async function recommendBids(
       strategy,
       segment,
       demand_mw: demandMw,
+      ...(overrides.price_offset != null && { price_offset: overrides.price_offset }),
+      ...(overrides.risk_tolerance != null && { risk_tolerance: overrides.risk_tolerance }),
+      ...(overrides.volume_scale != null && { volume_scale: overrides.volume_scale }),
+      ...(overrides.per_block_cap_factor != null && { per_block_cap_factor: overrides.per_block_cap_factor }),
     },
   });
   return res.data;
