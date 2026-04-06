@@ -22,7 +22,7 @@ export default function RootLayout({
               {/* Infosys logo */}
               <div className="flex items-center">
                 <img
-                  src="/infosys-logo.svg"
+                  src="/Infosys_logo.svg"
                   alt="Infosys"
                   className="h-7 w-auto"
                 />
