@@ -48,10 +48,14 @@ def _validate_date(d: str) -> str:
 async def predict_prices(
     target_date: str = Query(..., pattern=r"^\d{4}-\d{2}-\d{2}$"),
     segment: str = Query(..., pattern=r"^(DAM|RTM|TAM)$"),
+    block_start: int = Query(default=1, ge=1, le=96),
+    block_end: int = Query(default=96, ge=1, le=96),
     db: AsyncSession = Depends(get_db),
 ):
-    """Generate 96-block price forecasts for a target date and segment."""
+    """Generate price forecasts for a target date and segment, optionally filtered to a block range."""
     target_date = _validate_date(target_date)
+    if block_start > block_end:
+        raise HTTPException(422, "block_start must be <= block_end")
     model = _get_model(segment)
     if model.model is None:
         raise HTTPException(
@@ -91,6 +95,8 @@ async def predict_prices(
         _history_cache[segment] = (history_df, datetime.utcnow() + _HISTORY_TTL)
 
     blocks = model.predict(target_date, history_df)
+    if block_start > 1 or block_end < 96:
+        blocks = [b for b in blocks if block_start <= b["block"] <= block_end]
 
     # Persist forecasts
     for b in blocks:
@@ -113,6 +119,79 @@ async def predict_prices(
         segment=segment,
         blocks=[ForecastBlock(**b) for b in blocks],
     )
+
+
+@router.get("/predict-range")
+async def predict_prices_range(
+    date_from: str = Query(..., pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    date_to: str = Query(..., pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    segment: str = Query(..., pattern=r"^(DAM|RTM|TAM)$"),
+    block_start: int = Query(default=1, ge=1, le=96),
+    block_end: int = Query(default=96, ge=1, le=96),
+    db: AsyncSession = Depends(get_db),
+):
+    """Generate forecasts for a date range (max 14 days), optionally filtered to a block range."""
+    date_from = _validate_date(date_from)
+    date_to = _validate_date(date_to)
+    if block_start > block_end:
+        raise HTTPException(422, "block_start must be <= block_end")
+    d0 = datetime.strptime(date_from, "%Y-%m-%d")
+    d1 = datetime.strptime(date_to, "%Y-%m-%d")
+    if d0 > d1:
+        raise HTTPException(422, "date_from must be <= date_to")
+    if (d1 - d0).days > 13:
+        raise HTTPException(422, "Date range cannot exceed 14 days")
+
+    model = _get_model(segment)
+    if model.model is None:
+        raise HTTPException(503, f"No trained model for {segment}. POST /forecast/train first.")
+
+    # Reuse history cache (same as single-day endpoint)
+    cached = _history_cache.get(segment)
+    if cached and datetime.utcnow() < cached[1]:
+        history_df = cached[0]
+    else:
+        result = await db.execute(
+            select(PriceHistory)
+            .where(PriceHistory.segment == segment)
+            .order_by(PriceHistory.date.desc(), PriceHistory.block)
+            .limit(96 * 30)
+        )
+        rows = result.scalars().all()
+        if not rows:
+            raise HTTPException(400, "No historical data available. Load data first.")
+        history_df = pd.DataFrame(
+            [
+                {
+                    "date": r.date, "block": r.block, "segment": r.segment,
+                    "mcp": r.mcp, "mcv": r.mcv, "demand_mw": r.demand_mw,
+                    "supply_mw": r.supply_mw, "renewable_gen_mw": r.renewable_gen_mw,
+                    "temperature": r.temperature,
+                }
+                for r in rows
+            ]
+        )
+        _history_cache[segment] = (history_df, datetime.utcnow() + _HISTORY_TTL)
+
+    days = []
+    current = d0
+    while current <= d1:
+        date_str = current.strftime("%Y-%m-%d")
+        day_blocks = model.predict(date_str, history_df)
+        if block_start > 1 or block_end < 96:
+            day_blocks = [b for b in day_blocks if block_start <= b["block"] <= block_end]
+        for b in day_blocks:
+            db.add(Forecast(
+                target_date=date_str, block=b["block"], segment=segment,
+                predicted_price=b["predicted_price"], confidence_low=b["confidence_low"],
+                confidence_high=b["confidence_high"], volatility=b["volatility"],
+                top_features=b["top_features"],
+            ))
+        days.append({"date": date_str, "blocks": day_blocks})
+        current += timedelta(days=1)
+    await db.commit()
+
+    return {"segment": segment, "date_from": date_from, "date_to": date_to, "days": days}
 
 
 @router.get("/latest", response_model=ForecastResponse)

@@ -15,6 +15,7 @@ import {
 } from "recharts";
 import {
   predictPrices,
+  predictPricesRange,
   trainModel,
   getLatestForecast,
   exportForecastCsv,
@@ -127,6 +128,14 @@ const DEFAULT_FEATURES = {
   include_demand_supply_ratio: true, include_price_momentum: true,
   include_ema: true, ema_span: 7,
 };
+const RANGE_COLORS = ["#006DAE", "#10B981", "#F59E0B", "#EF4444", "#8B5CF6", "#EC4899", "#14B8A6", "#F97316"];
+const BLOCK_PRESETS: Record<string, [number, number] | null> = {
+  all: [1, 96], morning: [25, 40], business: [37, 68], evening: [69, 88], custom: null,
+};
+function addDays(date: string, n: number): string {
+  const d = new Date(date); d.setDate(d.getDate() + n); return d.toISOString().split("T")[0];
+}
+
 const DEFAULT_BID_OPT: BidOptConfig & { useOverrides: boolean } = {
   useOverrides: false,
   price_offset: 0.0, risk_tolerance: 0.6, volume_scale: 1.0, per_block_cap_factor: 4.0,
@@ -148,6 +157,16 @@ export default function TradingDeskPage() {
   const [selectedBlock, setSelectedBlock] = useState<ForecastBlock | null>(null);
   const [isStale, setIsStale] = useState(false);
   const [offlineError, setOfflineError] = useState("");
+
+  // Forecast range + block filter state
+  const [forecastMode, setForecastMode] = useState<"single" | "range">("single");
+  const [dateFrom, setDateFrom] = useState(getTomorrowDate());
+  const [dateTo, setDateTo] = useState(() => addDays(getTomorrowDate(), 2));
+  const [blockPreset, setBlockPreset] = useState("all");
+  const [blockStart, setBlockStart] = useState(1);
+  const [blockEnd, setBlockEnd] = useState(96);
+  const [rangeResults, setRangeResults] = useState<{ date: string; blocks: ForecastBlock[] }[]>([]);
+  const [selectedRangeDate, setSelectedRangeDate] = useState("");
 
   // Train config state
   const [testSize, setTestSize] = useState(0.2);
@@ -192,17 +211,29 @@ export default function TradingDeskPage() {
   /* ── Handlers: Forecast ── */
   const handlePredict = async () => {
     setForecasting(true); setIsStale(false); setOfflineError("");
+    setBlocks([]); setRangeResults([]);
     try {
-      const data = await predictPrices(targetDate, segment);
-      setBlocks(data.blocks);
-      setSelectedBlock(data.blocks[0]);
+      if (forecastMode === "range") {
+        const data = await predictPricesRange(dateFrom, dateTo, segment, blockStart, blockEnd);
+        setRangeResults(data.days);
+        setSelectedRangeDate(data.days[0]?.date || "");
+        setSelectedBlock(data.days[0]?.blocks[0] || null);
+      } else {
+        const data = await predictPrices(targetDate, segment, blockStart, blockEnd);
+        setBlocks(data.blocks);
+        setSelectedBlock(data.blocks[0]);
+      }
     } catch (e: any) {
-      try {
-        const cached = await getLatestForecast(segment);
-        setBlocks(cached.blocks); setSelectedBlock(cached.blocks[0]); setIsStale(true);
-        setOfflineError(e.response?.data?.detail || "Live forecast unavailable — showing last cached prediction.");
-      } catch {
-        setOfflineError("Data feed offline. No cached forecasts available.");
+      if (forecastMode === "single") {
+        try {
+          const cached = await getLatestForecast(segment);
+          setBlocks(cached.blocks); setSelectedBlock(cached.blocks[0]); setIsStale(true);
+          setOfflineError(e.response?.data?.detail || "Live forecast unavailable — showing last cached prediction.");
+        } catch {
+          setOfflineError("Data feed offline. No cached forecasts available.");
+        }
+      } else {
+        setOfflineError(e.response?.data?.detail || "Range forecast failed.");
       }
     }
     setForecasting(false);
@@ -291,13 +322,28 @@ export default function TradingDeskPage() {
   };
 
   /* ── Derived ── */
+  const displayBlocks = forecastMode === "range" ? rangeResults.flatMap((r) => r.blocks) : blocks;
+  const activeDateBlocks = forecastMode === "range"
+    ? (rangeResults.find((r) => r.date === selectedRangeDate)?.blocks || [])
+    : blocks;
   const chartData = blocks.map((b) => ({
     block: b.block, time: blockToTime(b.block),
     price: b.predicted_price, low: b.confidence_low, high: b.confidence_high,
   }));
-  const peakBlock = blocks.length ? blocks.reduce((a, b) => a.predicted_price > b.predicted_price ? a : b) : null;
-  const minBlock = blocks.length ? blocks.reduce((a, b) => a.predicted_price < b.predicted_price ? a : b) : null;
-  const avgPrice = blocks.length ? blocks.reduce((s, b) => s + b.predicted_price, 0) / blocks.length : 0;
+  const rangeChartData = rangeResults.length > 0
+    ? Array.from({ length: blockEnd - blockStart + 1 }, (_, i) => {
+        const block = blockStart + i;
+        const row: any = { block, time: blockToTime(block) };
+        rangeResults.forEach((day) => {
+          const b = day.blocks.find((d) => d.block === block);
+          if (b) row[day.date] = b.predicted_price;
+        });
+        return row;
+      })
+    : [];
+  const peakBlock = displayBlocks.length ? displayBlocks.reduce((a, b) => a.predicted_price > b.predicted_price ? a : b) : null;
+  const minBlock = displayBlocks.length ? displayBlocks.reduce((a, b) => a.predicted_price < b.predicted_price ? a : b) : null;
+  const avgPrice = displayBlocks.length ? displayBlocks.reduce((s, b) => s + b.predicted_price, 0) / displayBlocks.length : 0;
   const totalVolume = bids.reduce((s, b) => s + b.volume_mw, 0);
   const avgBidPrice = bids.length ? bids.reduce((s, b) => s + b.price, 0) / bids.length : 0;
   const overrideCount = bids.filter((b) => b.is_overridden).length;
@@ -330,10 +376,74 @@ export default function TradingDeskPage() {
             {SEGMENTS.map((s) => <option key={s} value={s}>{s}</option>)}
           </select>
         </div>
-        <div>
-          <label className="block text-[10px] text-gray-400 uppercase tracking-wider mb-1">Target Date</label>
-          <input type="date" value={targetDate} onChange={(e) => setTargetDate(e.target.value)} className="input-field" />
-        </div>
+        {tab === "bids" ? (
+          <div>
+            <label className="block text-[10px] text-gray-400 uppercase tracking-wider mb-1">Target Date</label>
+            <input type="date" value={targetDate} onChange={(e) => setTargetDate(e.target.value)} className="input-field" />
+          </div>
+        ) : (
+          <div className="flex items-end gap-2 flex-wrap">
+            <div>
+              <label className="block text-[10px] text-gray-400 uppercase tracking-wider mb-1">Mode</label>
+              <div className="flex rounded-lg overflow-hidden border border-gray-200">
+                {(["single", "range"] as const).map((m) => (
+                  <button key={m} onClick={() => setForecastMode(m)}
+                    className={`px-2.5 py-1.5 text-xs transition-colors ${forecastMode === m ? "bg-[#006DAE] text-white" : "bg-white text-gray-500 hover:bg-gray-50"}`}>
+                    {m === "single" ? "Single Day" : "Date Range"}
+                  </button>
+                ))}
+              </div>
+            </div>
+            {forecastMode === "single" ? (
+              <div>
+                <label className="block text-[10px] text-gray-400 uppercase tracking-wider mb-1">Date</label>
+                <input type="date" value={targetDate} onChange={(e) => setTargetDate(e.target.value)} className="input-field" />
+              </div>
+            ) : (
+              <>
+                <div>
+                  <label className="block text-[10px] text-gray-400 uppercase tracking-wider mb-1">From</label>
+                  <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className="input-field" />
+                </div>
+                <div>
+                  <label className="block text-[10px] text-gray-400 uppercase tracking-wider mb-1">To <span className="normal-case text-gray-300">(max 14d)</span></label>
+                  <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="input-field" />
+                </div>
+              </>
+            )}
+            <div>
+              <label className="block text-[10px] text-gray-400 uppercase tracking-wider mb-1">Block Range</label>
+              <select className="select-field text-xs" value={blockPreset}
+                onChange={(e) => {
+                  setBlockPreset(e.target.value);
+                  const p = BLOCK_PRESETS[e.target.value];
+                  if (p) { setBlockStart(p[0]); setBlockEnd(p[1]); }
+                }}>
+                <option value="all">All (1–96)</option>
+                <option value="morning">Morning peak (25–40)</option>
+                <option value="business">Business hours (37–68)</option>
+                <option value="evening">Evening peak (69–88)</option>
+                <option value="custom">Custom…</option>
+              </select>
+            </div>
+            {blockPreset === "custom" && (
+              <>
+                <div>
+                  <label className="block text-[10px] text-gray-400 uppercase tracking-wider mb-1">From Block</label>
+                  <input type="number" min={1} max={96} value={blockStart}
+                    onChange={(e) => setBlockStart(Math.max(1, Math.min(96, Number(e.target.value))))}
+                    className="input-field w-16 text-xs" />
+                </div>
+                <div>
+                  <label className="block text-[10px] text-gray-400 uppercase tracking-wider mb-1">To Block</label>
+                  <input type="number" min={1} max={96} value={blockEnd}
+                    onChange={(e) => setBlockEnd(Math.max(1, Math.min(96, Number(e.target.value))))}
+                    className="input-field w-16 text-xs" />
+                </div>
+              </>
+            )}
+          </div>
+        )}
         {tab === "forecast" ? (
           <>
             <button onClick={handlePredict} disabled={forecasting} className="btn-primary">
@@ -460,7 +570,7 @@ export default function TradingDeskPage() {
                   { label: "Avg Price", val: `₹${avgPrice.toFixed(2)}`, color: "text-[#006DAE]" },
                   { label: "Peak", val: `₹${peakBlock?.predicted_price.toFixed(2)}`, sub: `Block ${peakBlock?.block}`, color: "text-red-500" },
                   { label: "Trough", val: `₹${minBlock?.predicted_price.toFixed(2)}`, sub: `Block ${minBlock?.block}`, color: "text-green-600" },
-                  { label: "Avg Volatility", val: `₹${(blocks.reduce((s, b) => s + b.volatility, 0) / blocks.length).toFixed(3)}`, color: "text-amber-500" },
+                  { label: "Avg Volatility", val: displayBlocks.length ? `₹${(displayBlocks.reduce((s, b) => s + b.volatility, 0) / displayBlocks.length).toFixed(3)}` : "—", color: "text-amber-500" },
                 ].map(({ label, val, sub, color }) => (
                   <div key={label} className="card text-center py-3">
                     <div className="text-[10px] text-gray-400 uppercase tracking-wider">{label}</div>
@@ -472,31 +582,59 @@ export default function TradingDeskPage() {
 
               <div className="card">
                 <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-4">
-                  Price Forecast — {segment} — {targetDate}
+                  Price Forecast — {segment} — {forecastMode === "range" ? `${dateFrom} → ${dateTo}` : targetDate}
+                  {(blockStart > 1 || blockEnd < 96) && <span className="ml-2 font-normal normal-case text-gray-400">Blocks {blockStart}–{blockEnd} ({blockToTime(blockStart)}–{blockToTime(blockEnd)})</span>}
                 </h2>
-                <ResponsiveContainer width="100%" height={300}>
-                  <AreaChart data={chartData}>
-                    <defs>
-                      <linearGradient id="confGrad" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#006DAE" stopOpacity={0.15} />
-                        <stop offset="95%" stopColor="#006DAE" stopOpacity={0} />
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" vertical={false} />
-                    <XAxis dataKey="time" stroke="#D1D5DB" fontSize={9} interval={7} tick={{ fill: "#9CA3AF" }} tickLine={false} />
-                    <YAxis stroke="#D1D5DB" fontSize={9} tick={{ fill: "#9CA3AF" }} tickLine={false} axisLine={false} tickFormatter={(v) => `₹${v}`} width={40} />
-                    <Tooltip contentStyle={{ background: "#fff", border: "1px solid #E2E8F0", borderRadius: "8px", fontSize: "11px" }} formatter={(v: number) => `₹${v.toFixed(3)}`} />
-                    <Legend wrapperStyle={{ fontSize: "10px" }} />
-                    <Area type="monotone" dataKey="high" stroke="transparent" fill="url(#confGrad)" name="CI High" legendType="none" />
-                    <Area type="monotone" dataKey="low" stroke="transparent" fill="#fff" name="CI Low" legendType="none" />
-                    <Area type="monotone" dataKey="price" stroke="#006DAE" strokeWidth={2} fill="url(#confGrad)" dot={false} name="Predicted Price" />
-                  </AreaChart>
-                </ResponsiveContainer>
+                {forecastMode === "single" ? (
+                  <ResponsiveContainer width="100%" height={300}>
+                    <AreaChart data={chartData}>
+                      <defs>
+                        <linearGradient id="confGrad" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#006DAE" stopOpacity={0.15} />
+                          <stop offset="95%" stopColor="#006DAE" stopOpacity={0} />
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" vertical={false} />
+                      <XAxis dataKey="time" stroke="#D1D5DB" fontSize={9} interval={7} tick={{ fill: "#9CA3AF" }} tickLine={false} />
+                      <YAxis stroke="#D1D5DB" fontSize={9} tick={{ fill: "#9CA3AF" }} tickLine={false} axisLine={false} tickFormatter={(v) => `₹${v}`} width={40} />
+                      <Tooltip contentStyle={{ background: "#fff", border: "1px solid #E2E8F0", borderRadius: "8px", fontSize: "11px" }} formatter={(v: number) => `₹${v.toFixed(3)}`} />
+                      <Legend wrapperStyle={{ fontSize: "10px" }} />
+                      <Area type="monotone" dataKey="high" stroke="transparent" fill="url(#confGrad)" name="CI High" legendType="none" />
+                      <Area type="monotone" dataKey="low" stroke="transparent" fill="#fff" name="CI Low" legendType="none" />
+                      <Area type="monotone" dataKey="price" stroke="#006DAE" strokeWidth={2} fill="url(#confGrad)" dot={false} name="Predicted Price" />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <ResponsiveContainer width="100%" height={300}>
+                    <LineChart data={rangeChartData}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" vertical={false} />
+                      <XAxis dataKey="time" stroke="#D1D5DB" fontSize={9} interval={Math.max(1, Math.floor((blockEnd - blockStart) / 8))} tick={{ fill: "#9CA3AF" }} tickLine={false} />
+                      <YAxis stroke="#D1D5DB" fontSize={9} tick={{ fill: "#9CA3AF" }} tickLine={false} axisLine={false} tickFormatter={(v) => `₹${v}`} width={40} />
+                      <Tooltip contentStyle={{ background: "#fff", border: "1px solid #E2E8F0", borderRadius: "8px", fontSize: "11px" }} formatter={(v: number) => `₹${v.toFixed(3)}`} />
+                      <Legend wrapperStyle={{ fontSize: "10px" }} />
+                      {rangeResults.map((day, i) => (
+                        <Line key={day.date} type="monotone" dataKey={day.date} stroke={RANGE_COLORS[i % RANGE_COLORS.length]} strokeWidth={1.5} dot={false} />
+                      ))}
+                    </LineChart>
+                  </ResponsiveContainer>
+                )}
               </div>
 
               <div className="grid grid-cols-3 gap-4">
                 <div className="col-span-2 card">
-                  <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Block Details</h2>
+                  <div className="flex items-center justify-between mb-3">
+                    <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Block Details</h2>
+                    {forecastMode === "range" && rangeResults.length > 0 && (
+                      <div className="flex gap-1 flex-wrap">
+                        {rangeResults.map((r) => (
+                          <button key={r.date} onClick={() => setSelectedRangeDate(r.date)}
+                            className={`text-[10px] px-2 py-0.5 rounded transition-colors ${selectedRangeDate === r.date ? "bg-[#006DAE] text-white" : "bg-gray-100 text-gray-500 hover:bg-gray-200"}`}>
+                            {r.date}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                   <div className="max-h-64 overflow-y-auto">
                     <table className="w-full text-xs">
                       <thead className="text-gray-400 sticky top-0 bg-white">
@@ -507,7 +645,7 @@ export default function TradingDeskPage() {
                         </tr>
                       </thead>
                       <tbody>
-                        {blocks.map((b) => (
+                        {activeDateBlocks.map((b) => (
                           <tr key={b.block} onClick={() => setSelectedBlock(b)}
                             className={`cursor-pointer border-t border-gray-100 transition-colors ${selectedBlock?.block === b.block ? "bg-blue-50" : "hover:bg-gray-50"}`}>
                             <td className="py-1 px-2">{b.block}</td>

@@ -44,9 +44,27 @@ export async function trainModel(config: TrainConfig) {
   return res.data;
 }
 
-export async function predictPrices(targetDate: string, segment: string) {
+export async function predictPrices(
+  targetDate: string,
+  segment: string,
+  blockStart = 1,
+  blockEnd = 96,
+) {
   const res = await api.get("/forecast/predict", {
-    params: { target_date: targetDate, segment },
+    params: { target_date: targetDate, segment, block_start: blockStart, block_end: blockEnd },
+  });
+  return res.data;
+}
+
+export async function predictPricesRange(
+  dateFrom: string,
+  dateTo: string,
+  segment: string,
+  blockStart = 1,
+  blockEnd = 96,
+) {
+  const res = await api.get("/forecast/predict-range", {
+    params: { date_from: dateFrom, date_to: dateTo, segment, block_start: blockStart, block_end: blockEnd },
   });
   return res.data;
 }
