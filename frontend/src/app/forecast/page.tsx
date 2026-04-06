@@ -60,14 +60,24 @@ const OVERRIDE_REASONS = [
 
 /* ─── Small helpers ───────────────────────────────────────────────────── */
 function NumInput({
-  label, value, onChange, min, max, step = 0.01, className = "",
+  label, value, onChange, min, max, step = 0.01, className = "", tooltip,
 }: {
   label: string; value: number; onChange: (v: number) => void;
-  min?: number; max?: number; step?: number; className?: string;
+  min?: number; max?: number; step?: number; className?: string; tooltip?: string;
 }) {
   return (
     <label className={`flex flex-col gap-0.5 ${className}`}>
-      <span className="text-[10px] text-gray-400 uppercase tracking-wider">{label}</span>
+      <span className="flex items-center gap-1 text-[10px] text-gray-400 uppercase tracking-wider">
+        {label}
+        {tooltip && (
+          <span className="group relative inline-flex items-center">
+            <span className="flex items-center justify-center w-3.5 h-3.5 rounded-full border border-gray-300 text-[9px] font-bold text-gray-400 cursor-help hover:border-gray-500 hover:text-gray-600 leading-none">?</span>
+            <span className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-56 rounded-md bg-gray-800 px-2.5 py-2 text-[11px] normal-case font-normal text-white shadow-lg opacity-0 group-hover:opacity-100 transition-opacity z-50 leading-relaxed">
+              {tooltip}
+            </span>
+          </span>
+        )}
+      </span>
       <input
         type="number"
         className="input-field text-xs py-1 w-full"
@@ -97,7 +107,7 @@ function Toggle({ label, checked, onChange }: { label: string; checked: boolean;
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   const [open, setOpen] = useState(false);
   return (
-    <div className="border border-gray-200 rounded-lg overflow-hidden">
+    <div className="border border-gray-200 rounded-lg">
       <button
         onClick={() => setOpen((o) => !o)}
         className="w-full flex items-center justify-between px-3 py-2 text-xs font-semibold text-gray-600 bg-gray-50 hover:bg-gray-100 transition-colors"
@@ -419,87 +429,100 @@ export default function TradingDeskPage() {
         </div>
       </div>
 
-      {/* Shared controls row */}
-      <div className="card flex items-end gap-4 flex-wrap">
+      {/* Shared controls row — flat siblings so flex-wrap works cleanly */}
+      <div className="card flex items-end gap-3 flex-wrap">
+        {/* Segment */}
         <div>
           <label className="block text-[10px] text-gray-400 uppercase tracking-wider mb-1">Segment</label>
-          <div className="flex flex-col gap-1">
-            <select value={segment} onChange={(e) => setSegment(e.target.value)} className="select-field">
-              {SEGMENTS.map((s) => <option key={s} value={s}>{s}</option>)}
-            </select>
-            <span className="text-[10px] text-gray-400">{SEGMENT_META[segment].hint}</span>
-          </div>
+          <select value={segment} onChange={(e) => setSegment(e.target.value)} className="select-field"
+            title={SEGMENT_META[segment].hint}>
+            {SEGMENTS.map((s) => <option key={s} value={s}>{s}</option>)}
+          </select>
         </div>
-        {tab === "bids" ? (
+
+        {/* Bids tab: just a date picker */}
+        {tab === "bids" && (
           <div>
             <label className="block text-[10px] text-gray-400 uppercase tracking-wider mb-1">Target Date</label>
             <input type="date" value={targetDate} onChange={(e) => setTargetDate(e.target.value)} className="input-field" />
           </div>
-        ) : (
-          <div className="flex items-end gap-2 flex-wrap">
-            <div>
-              <label className="block text-[10px] text-gray-400 uppercase tracking-wider mb-1">Mode</label>
-              <div className="flex rounded-lg overflow-hidden border border-gray-200">
-                {(["single", "range"] as const).map((m) => (
-                  <button key={m} onClick={() => setForecastMode(m)}
-                    className={`px-3 py-2 text-sm transition-colors ${forecastMode === m ? "bg-[#006DAE] text-white" : "bg-white text-gray-500 hover:bg-gray-50"}`}>
-                    {m === "single" ? "Single Day" : "Date Range"}
-                  </button>
-                ))}
-              </div>
+        )}
+
+        {/* Forecast tab controls — each as a flat sibling */}
+        {tab === "forecast" && (
+          <div>
+            <label className="block text-[10px] text-gray-400 uppercase tracking-wider mb-1">Mode</label>
+            <div className="flex rounded-lg overflow-hidden border border-gray-200">
+              {(["single", "range"] as const).map((m) => (
+                <button key={m} onClick={() => setForecastMode(m)}
+                  className={`px-3 py-2 text-sm transition-colors ${forecastMode === m ? "bg-[#006DAE] text-white" : "bg-white text-gray-500 hover:bg-gray-50"}`}>
+                  {m === "single" ? "Single Day" : "Date Range"}
+                </button>
+              ))}
             </div>
-            {forecastMode === "single" ? (
-              <div>
-                <label className="block text-[10px] text-gray-400 uppercase tracking-wider mb-1">Date</label>
-                <input type="date" value={targetDate} onChange={(e) => setTargetDate(e.target.value)} className="input-field" />
-              </div>
-            ) : (
-              <>
-                <div>
-                  <label className="block text-[10px] text-gray-400 uppercase tracking-wider mb-1">From</label>
-                  <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className="input-field" />
-                </div>
-                <div>
-                  <label className="block text-[10px] text-gray-400 uppercase tracking-wider mb-1">
-                    To <span className="normal-case text-gray-300">(max {SEGMENT_META[segment].maxDays}d)</span>
-                  </label>
-                  <input type="date" value={dateTo}
-                    max={addDays(dateFrom, SEGMENT_META[segment].maxDays - 1)}
-                    onChange={(e) => setDateTo(e.target.value)} className="input-field" />
-                </div>
-              </>
-            )}
-            <div>
-              <label className="block text-[10px] text-gray-400 uppercase tracking-wider mb-1">Block Range</label>
-              <select className="select-field" value={blockPreset}
-                onChange={(e) => {
-                  setBlockPreset(e.target.value);
-                  const p = BLOCK_PRESETS[e.target.value];
-                  if (p) { setBlockStart(p[0]); setBlockEnd(p[1]); }
-                }}>
-                {SEGMENT_META[segment].presets.map((key) => (
-                  <option key={key} value={key}>{PRESET_LABEL[key]}</option>
-                ))}
-              </select>
-            </div>
-            {blockPreset === "custom" && (
-              <>
-                <div>
-                  <label className="block text-[10px] text-gray-400 uppercase tracking-wider mb-1">From Block</label>
-                  <input type="number" min={1} max={96} value={blockStart}
-                    onChange={(e) => setBlockStart(Math.max(1, Math.min(96, Number(e.target.value))))}
-                    className="input-field w-16 text-xs" />
-                </div>
-                <div>
-                  <label className="block text-[10px] text-gray-400 uppercase tracking-wider mb-1">To Block</label>
-                  <input type="number" min={1} max={96} value={blockEnd}
-                    onChange={(e) => setBlockEnd(Math.max(1, Math.min(96, Number(e.target.value))))}
-                    className="input-field w-16 text-xs" />
-                </div>
-              </>
-            )}
           </div>
         )}
+
+        {tab === "forecast" && forecastMode === "single" && (
+          <div>
+            <label className="block text-[10px] text-gray-400 uppercase tracking-wider mb-1">Date</label>
+            <input type="date" value={targetDate} onChange={(e) => setTargetDate(e.target.value)} className="input-field" />
+          </div>
+        )}
+
+        {tab === "forecast" && forecastMode === "range" && (
+          <div>
+            <label className="block text-[10px] text-gray-400 uppercase tracking-wider mb-1">From</label>
+            <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className="input-field" />
+          </div>
+        )}
+
+        {tab === "forecast" && forecastMode === "range" && (
+          <div>
+            <label className="block text-[10px] text-gray-400 uppercase tracking-wider mb-1">
+              To <span className="normal-case text-gray-300">(max {SEGMENT_META[segment].maxDays}d)</span>
+            </label>
+            <input type="date" value={dateTo}
+              max={addDays(dateFrom, SEGMENT_META[segment].maxDays - 1)}
+              onChange={(e) => setDateTo(e.target.value)} className="input-field" />
+          </div>
+        )}
+
+        {tab === "forecast" && (
+          <div>
+            <label className="block text-[10px] text-gray-400 uppercase tracking-wider mb-1">Block Range</label>
+            <select className="select-field" value={blockPreset}
+              onChange={(e) => {
+                setBlockPreset(e.target.value);
+                const p = BLOCK_PRESETS[e.target.value];
+                if (p) { setBlockStart(p[0]); setBlockEnd(p[1]); }
+              }}>
+              {SEGMENT_META[segment].presets.map((key) => (
+                <option key={key} value={key}>{PRESET_LABEL[key]}</option>
+              ))}
+            </select>
+          </div>
+        )}
+
+        {tab === "forecast" && blockPreset === "custom" && (
+          <div>
+            <label className="block text-[10px] text-gray-400 uppercase tracking-wider mb-1">From Block</label>
+            <input type="number" min={1} max={96} value={blockStart}
+              onChange={(e) => setBlockStart(Math.max(1, Math.min(96, Number(e.target.value))))}
+              className="input-field w-16" />
+          </div>
+        )}
+
+        {tab === "forecast" && blockPreset === "custom" && (
+          <div>
+            <label className="block text-[10px] text-gray-400 uppercase tracking-wider mb-1">To Block</label>
+            <input type="number" min={1} max={96} value={blockEnd}
+              onChange={(e) => setBlockEnd(Math.max(1, Math.min(96, Number(e.target.value))))}
+              className="input-field w-16" />
+          </div>
+        )}
+
+
         {tab === "forecast" ? (
           <>
             <button onClick={handlePredict} disabled={forecasting} className="btn-primary">
@@ -519,7 +542,7 @@ export default function TradingDeskPage() {
               <div className="flex rounded-lg overflow-hidden border border-gray-200">
                 {STRATEGIES.map((s) => (
                   <button key={s} onClick={() => setStrategy(s)}
-                    className={`px-3 py-1.5 text-xs capitalize transition-colors ${strategy === s
+                    className={`px-3 py-2 text-sm capitalize transition-colors ${strategy === s
                       ? s === "conservative" ? "bg-green-600 text-white" : s === "balanced" ? "bg-[#006DAE] text-white" : "bg-red-500 text-white"
                       : "bg-white text-gray-500 hover:bg-gray-50"}`}>
                     {s}
@@ -544,37 +567,63 @@ export default function TradingDeskPage() {
           {/* Advanced config */}
           <div className="card space-y-3">
             <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Model Configuration</p>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-              <NumInput label="Test Size" value={testSize} onChange={setTestSize} min={0.05} max={0.45} step={0.05} />
-              <div className="flex items-end pb-1">
+            <div className="flex items-end gap-6 flex-wrap">
+              <div>
+                <label className="block text-[10px] text-gray-400 uppercase tracking-wider mb-1">
+                  Test Size <span className="normal-case font-normal text-gray-300">(held-out validation)</span>
+                </label>
+                <div className="flex items-center gap-3">
+                  <input type="range" min={0.05} max={0.45} step={0.05} value={testSize}
+                    onChange={(e) => setTestSize(Number(e.target.value))}
+                    className="w-32 accent-[#006DAE]" />
+                  <span className="text-sm font-mono text-[#006DAE] w-10">{Math.round(testSize * 100)}%</span>
+                </div>
+              </div>
+              <div className="flex items-end pb-0.5">
                 <Toggle label="Shuffle training data" checked={shuffle} onChange={setShuffle} />
               </div>
             </div>
             <Section title="Hyperparameters (HistGradientBoosting)">
-              <NumInput label="Max Iterations" value={hp.max_iter} onChange={(v) => setHp((p) => ({ ...p, max_iter: v }))} min={50} max={5000} step={50} />
-              <NumInput label="Max Depth" value={hp.max_depth} onChange={(v) => setHp((p) => ({ ...p, max_depth: v }))} min={2} max={30} step={1} />
-              <NumInput label="Learning Rate" value={hp.learning_rate} onChange={(v) => setHp((p) => ({ ...p, learning_rate: v }))} min={0.001} max={1} step={0.005} />
-              <NumInput label="Min Samples Leaf" value={hp.min_samples_leaf} onChange={(v) => setHp((p) => ({ ...p, min_samples_leaf: v }))} min={1} max={200} step={1} />
-              <NumInput label="L2 Regularisation" value={hp.l2_regularization} onChange={(v) => setHp((p) => ({ ...p, l2_regularization: v }))} min={0} max={10} step={0.1} />
-              <NumInput label="Max Bins" value={hp.max_bins} onChange={(v) => setHp((p) => ({ ...p, max_bins: v }))} min={10} max={255} step={5} />
-              <NumInput label="N Iter No Change" value={hp.n_iter_no_change} onChange={(v) => setHp((p) => ({ ...p, n_iter_no_change: v }))} min={1} max={100} step={1} />
-              <NumInput label="Val Fraction" value={hp.validation_fraction} onChange={(v) => setHp((p) => ({ ...p, validation_fraction: v }))} min={0.05} max={0.4} step={0.05} />
+              <NumInput label="Max Iterations" value={hp.max_iter} onChange={(v) => setHp((p) => ({ ...p, max_iter: v }))} min={50} max={5000} step={50} tooltip="Total number of boosting rounds. More iterations = better fit but slower training. Early stopping will halt before this if validation loss stops improving." />
+              <NumInput label="Max Depth" value={hp.max_depth} onChange={(v) => setHp((p) => ({ ...p, max_depth: v }))} min={2} max={30} step={1} tooltip="Maximum depth of each decision tree. Deeper trees capture more complex patterns but are prone to overfitting. Typical sweet spot: 4–12." />
+              <NumInput label="Learning Rate" value={hp.learning_rate} onChange={(v) => setHp((p) => ({ ...p, learning_rate: v }))} min={0.001} max={1} step={0.005} tooltip="Shrinkage applied to each tree's contribution. Lower values (0.01–0.1) generalise better but require more iterations. Pair with higher max_iter." />
+              <NumInput label="Min Samples Leaf" value={hp.min_samples_leaf} onChange={(v) => setHp((p) => ({ ...p, min_samples_leaf: v }))} min={1} max={200} step={1} tooltip="Minimum number of training samples required in a leaf node. Higher values smooth the model and reduce overfitting on noisy price data." />
+              <NumInput label="L2 Regularisation" value={hp.l2_regularization} onChange={(v) => setHp((p) => ({ ...p, l2_regularization: v }))} min={0} max={10} step={0.1} tooltip="L2 (ridge) penalty on leaf values. Penalises large weights to prevent overfitting. 0 = no penalty; increase if the model overfits historical spikes." />
+              <NumInput label="Max Bins" value={hp.max_bins} onChange={(v) => setHp((p) => ({ ...p, max_bins: v }))} min={10} max={255} step={5} tooltip="Number of bins used to discretise continuous features. More bins = finer splits and higher accuracy, but more memory. 255 is the maximum." />
+              <NumInput label="N Iter No Change" value={hp.n_iter_no_change} onChange={(v) => setHp((p) => ({ ...p, n_iter_no_change: v }))} min={1} max={100} step={1} tooltip="Number of iterations with no improvement on the validation set before early stopping triggers. Only active when Early Stopping is enabled." />
+              <NumInput label="Val Fraction" value={hp.validation_fraction} onChange={(v) => setHp((p) => ({ ...p, validation_fraction: v }))} min={0.05} max={0.4} step={0.05} tooltip="Fraction of training data held out internally for early-stopping validation. Separate from the outer Test Size split. Only used when Early Stopping is on." />
               <div className="col-span-2 flex items-center pt-1">
                 <Toggle label="Early stopping" checked={hp.early_stopping} onChange={(v) => setHp((p) => ({ ...p, early_stopping: v }))} />
               </div>
             </Section>
             <Section title="Feature Engineering">
               <label className="flex flex-col gap-0.5 col-span-2">
-                <span className="text-[10px] text-gray-400 uppercase tracking-wider">Extra Lag Days (comma-separated)</span>
+                <span className="flex items-center gap-1 text-[10px] text-gray-400 uppercase tracking-wider">
+                  Extra Lag Days (comma-separated)
+                  <span className="group relative inline-flex items-center">
+                    <span className="flex items-center justify-center w-3.5 h-3.5 rounded-full border border-gray-300 text-[9px] font-bold text-gray-400 cursor-help hover:border-gray-500 hover:text-gray-600 leading-none">?</span>
+                    <span className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-56 rounded-md bg-gray-800 px-2.5 py-2 text-[11px] normal-case font-normal text-white shadow-lg opacity-0 group-hover:opacity-100 transition-opacity z-50 leading-relaxed">
+                      Additional historical days to use as features. E.g. &quot;2,3,14&quot; adds price from 2, 3, and 14 days ago. The default lag of 1 day (yesterday) is always included. Useful for capturing weekly or fortnightly price cycles.
+                    </span>
+                  </span>
+                </span>
                 <input className="input-field text-xs py-1" value={features.extra_lags} placeholder="e.g. 2,3,14"
                   onChange={(e) => setFeatures((p) => ({ ...p, extra_lags: e.target.value }))} />
               </label>
               <label className="flex flex-col gap-0.5 col-span-2">
-                <span className="text-[10px] text-gray-400 uppercase tracking-wider">Rolling Windows (days)</span>
+                <span className="flex items-center gap-1 text-[10px] text-gray-400 uppercase tracking-wider">
+                  Rolling Windows (days)
+                  <span className="group relative inline-flex items-center">
+                    <span className="flex items-center justify-center w-3.5 h-3.5 rounded-full border border-gray-300 text-[9px] font-bold text-gray-400 cursor-help hover:border-gray-500 hover:text-gray-600 leading-none">?</span>
+                    <span className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-56 rounded-md bg-gray-800 px-2.5 py-2 text-[11px] normal-case font-normal text-white shadow-lg opacity-0 group-hover:opacity-100 transition-opacity z-50 leading-relaxed">
+                      Window sizes (in days) for rolling mean and std features. E.g. &quot;7,14&quot; adds a 7-day and 14-day rolling average of historical prices. Larger windows smooth out noise; smaller windows capture recent trends.
+                    </span>
+                  </span>
+                </span>
                 <input className="input-field text-xs py-1" value={features.rolling_windows} placeholder="e.g. 7,14"
                   onChange={(e) => setFeatures((p) => ({ ...p, rolling_windows: e.target.value }))} />
               </label>
-              <NumInput label="EMA Span" value={features.ema_span} onChange={(v) => setFeatures((p) => ({ ...p, ema_span: v }))} min={2} max={30} step={1} />
+              <NumInput label="EMA Span" value={features.ema_span} onChange={(v) => setFeatures((p) => ({ ...p, ema_span: v }))} min={2} max={30} step={1} tooltip="Window size for the exponential moving average feature. Smaller = more reactive to recent prices; larger = smoother trend signal." />
               <div className="col-span-3 flex flex-wrap gap-4 items-center pt-1">
                 <Toggle label="D/S ratio" checked={features.include_demand_supply_ratio} onChange={(v) => setFeatures((p) => ({ ...p, include_demand_supply_ratio: v }))} />
                 <Toggle label="Price momentum" checked={features.include_price_momentum} onChange={(v) => setFeatures((p) => ({ ...p, include_price_momentum: v }))} />
@@ -592,8 +641,8 @@ export default function TradingDeskPage() {
                   <option value="grid">Grid Search</option>
                 </select>
               </label>
-              <NumInput label="Iterations" value={tuning.n_iter} onChange={(v) => setTuning((p) => ({ ...p, n_iter: v }))} min={5} max={200} step={5} />
-              <NumInput label="CV Folds" value={tuning.cv_folds} onChange={(v) => setTuning((p) => ({ ...p, cv_folds: v }))} min={2} max={10} step={1} />
+              <NumInput label="Iterations" value={tuning.n_iter} onChange={(v) => setTuning((p) => ({ ...p, n_iter: v }))} min={5} max={200} step={5} tooltip="Number of random parameter combinations to evaluate. Higher = better chance of finding the optimum, but much slower. Ignored for Grid Search." />
+              <NumInput label="CV Folds" value={tuning.cv_folds} onChange={(v) => setTuning((p) => ({ ...p, cv_folds: v }))} min={2} max={10} step={1} tooltip="Number of cross-validation folds. More folds = more robust score estimate but proportionally longer run time. 5 is a practical default." />
               <label className="flex flex-col gap-0.5">
                 <span className="text-[10px] text-gray-400 uppercase tracking-wider">Scoring</span>
                 <select className="select-field text-xs py-1" value={tuning.scoring} onChange={(e) => setTuning((p) => ({ ...p, scoring: e.target.value as any }))}>

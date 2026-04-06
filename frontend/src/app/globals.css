@@ -54,12 +54,12 @@
 }
 
 .input-field {
-  @apply bg-white border border-[var(--border)] text-gray-900 rounded-lg px-3 py-2
+  @apply bg-white border border-[var(--border)] text-gray-900 text-sm rounded-lg px-3 py-2
          focus:outline-none focus:ring-2 focus:ring-[var(--infy-blue)] focus:border-[var(--infy-blue)];
 }
 
 .select-field {
-  @apply bg-white border border-[var(--border)] text-gray-900 rounded-lg px-3 py-2
+  @apply bg-white border border-[var(--border)] text-gray-900 text-sm rounded-lg px-3 py-2
          focus:outline-none focus:ring-2 focus:ring-[var(--infy-blue)] focus:border-[var(--infy-blue)];
 }
 
