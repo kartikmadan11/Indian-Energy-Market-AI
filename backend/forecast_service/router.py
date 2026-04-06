@@ -130,7 +130,7 @@ async def predict_prices_range(
     block_end: int = Query(default=96, ge=1, le=96),
     db: AsyncSession = Depends(get_db),
 ):
-    """Generate forecasts for a date range (max 14 days), optionally filtered to a block range."""
+    """Generate forecasts for a date range (max 30 days), optionally filtered to a block range."""
     date_from = _validate_date(date_from)
     date_to = _validate_date(date_to)
     if block_start > block_end:
@@ -139,8 +139,8 @@ async def predict_prices_range(
     d1 = datetime.strptime(date_to, "%Y-%m-%d")
     if d0 > d1:
         raise HTTPException(422, "date_from must be <= date_to")
-    if (d1 - d0).days > 13:
-        raise HTTPException(422, "Date range cannot exceed 14 days")
+    if (d1 - d0).days > 29:
+        raise HTTPException(422, "Date range cannot exceed 30 days")
 
     model = _get_model(segment)
     if model.model is None:

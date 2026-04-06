@@ -129,8 +129,49 @@ const DEFAULT_FEATURES = {
   include_ema: true, ema_span: 7,
 };
 const RANGE_COLORS = ["#006DAE", "#10B981", "#F59E0B", "#EF4444", "#8B5CF6", "#EC4899", "#14B8A6", "#F97316"];
+
+// Blocks: 1 = 00:15, 24 = 06:00, 25 = 06:15 … 88 = 22:00, 96 = 24:00
 const BLOCK_PRESETS: Record<string, [number, number] | null> = {
-  all: [1, 96], morning: [25, 40], business: [37, 68], evening: [69, 88], custom: null,
+  all:      [1, 96],
+  peak:     [25, 88],   // 06:00–22:00
+  morning:  [25, 40],   // 06:00–10:00
+  business: [37, 68],   // 09:15–17:00
+  evening:  [69, 88],   // 17:15–22:00
+  offpeak:  [1, 24],    // 00:15–06:00
+  next4h:   [1, 16],    // next 4 hours (RTM near-term)
+  next8h:   [1, 32],    // next 8 hours
+  custom:   null,
+};
+const PRESET_LABEL: Record<string, string> = {
+  all:      "All (1–96)",
+  peak:     "Peak hours (25–88 · 06:00–22:00)",
+  morning:  "Morning peak (25–40 · 06:00–10:00)",
+  business: "Business hours (37–68 · 09:15–17:00)",
+  evening:  "Evening peak (69–88 · 17:15–22:00)",
+  offpeak:  "Off-peak (1–24 · 00:15–06:00)",
+  next4h:   "Next 4 h (1–16)",
+  next8h:   "Next 8 h (1–32)",
+  custom:   "Custom…",
+};
+const SEGMENT_META: Record<string, { maxDays: number; defaultRangeDays: number; presets: string[]; hint: string }> = {
+  DAM: {
+    maxDays: 14,
+    defaultRangeDays: 3,
+    presets: ["all", "peak", "morning", "business", "evening", "offpeak", "custom"],
+    hint: "Day-ahead · bids close 12:00 daily",
+  },
+  RTM: {
+    maxDays: 3,
+    defaultRangeDays: 1,
+    presets: ["all", "next4h", "next8h", "peak", "morning", "evening", "custom"],
+    hint: "Real-time · 4-block (1 h) delivery lead",
+  },
+  TAM: {
+    maxDays: 30,
+    defaultRangeDays: 7,
+    presets: ["all", "peak", "offpeak", "business", "custom"],
+    hint: "Term-ahead · week/month horizon",
+  },
 };
 function addDays(date: string, n: number): string {
   const d = new Date(date); d.setDate(d.getDate() + n); return d.toISOString().split("T")[0];
@@ -167,6 +208,16 @@ export default function TradingDeskPage() {
   const [blockEnd, setBlockEnd] = useState(96);
   const [rangeResults, setRangeResults] = useState<{ date: string; blocks: ForecastBlock[] }[]>([]);
   const [selectedRangeDate, setSelectedRangeDate] = useState("");
+
+  // Reset block preset + clamp date range when segment changes
+  useEffect(() => {
+    const meta = SEGMENT_META[segment];
+    if (!meta.presets.includes(blockPreset)) {
+      setBlockPreset("all"); setBlockStart(1); setBlockEnd(96);
+    }
+    const maxTo = addDays(dateFrom, meta.maxDays - 1);
+    if (dateTo > maxTo) setDateTo(maxTo);
+  }, [segment]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Train config state
   const [testSize, setTestSize] = useState(0.2);
@@ -372,9 +423,12 @@ export default function TradingDeskPage() {
       <div className="card flex items-end gap-4 flex-wrap">
         <div>
           <label className="block text-[10px] text-gray-400 uppercase tracking-wider mb-1">Segment</label>
-          <select value={segment} onChange={(e) => setSegment(e.target.value)} className="select-field">
-            {SEGMENTS.map((s) => <option key={s} value={s}>{s}</option>)}
-          </select>
+          <div className="flex flex-col gap-1">
+            <select value={segment} onChange={(e) => setSegment(e.target.value)} className="select-field">
+              {SEGMENTS.map((s) => <option key={s} value={s}>{s}</option>)}
+            </select>
+            <span className="text-[10px] text-gray-400">{SEGMENT_META[segment].hint}</span>
+          </div>
         </div>
         {tab === "bids" ? (
           <div>
@@ -388,7 +442,7 @@ export default function TradingDeskPage() {
               <div className="flex rounded-lg overflow-hidden border border-gray-200">
                 {(["single", "range"] as const).map((m) => (
                   <button key={m} onClick={() => setForecastMode(m)}
-                    className={`px-2.5 py-1.5 text-xs transition-colors ${forecastMode === m ? "bg-[#006DAE] text-white" : "bg-white text-gray-500 hover:bg-gray-50"}`}>
+                    className={`px-3 py-2 text-sm transition-colors ${forecastMode === m ? "bg-[#006DAE] text-white" : "bg-white text-gray-500 hover:bg-gray-50"}`}>
                     {m === "single" ? "Single Day" : "Date Range"}
                   </button>
                 ))}
@@ -406,24 +460,26 @@ export default function TradingDeskPage() {
                   <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className="input-field" />
                 </div>
                 <div>
-                  <label className="block text-[10px] text-gray-400 uppercase tracking-wider mb-1">To <span className="normal-case text-gray-300">(max 14d)</span></label>
-                  <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="input-field" />
+                  <label className="block text-[10px] text-gray-400 uppercase tracking-wider mb-1">
+                    To <span className="normal-case text-gray-300">(max {SEGMENT_META[segment].maxDays}d)</span>
+                  </label>
+                  <input type="date" value={dateTo}
+                    max={addDays(dateFrom, SEGMENT_META[segment].maxDays - 1)}
+                    onChange={(e) => setDateTo(e.target.value)} className="input-field" />
                 </div>
               </>
             )}
             <div>
               <label className="block text-[10px] text-gray-400 uppercase tracking-wider mb-1">Block Range</label>
-              <select className="select-field text-xs" value={blockPreset}
+              <select className="select-field" value={blockPreset}
                 onChange={(e) => {
                   setBlockPreset(e.target.value);
                   const p = BLOCK_PRESETS[e.target.value];
                   if (p) { setBlockStart(p[0]); setBlockEnd(p[1]); }
                 }}>
-                <option value="all">All (1–96)</option>
-                <option value="morning">Morning peak (25–40)</option>
-                <option value="business">Business hours (37–68)</option>
-                <option value="evening">Evening peak (69–88)</option>
-                <option value="custom">Custom…</option>
+                {SEGMENT_META[segment].presets.map((key) => (
+                  <option key={key} value={key}>{PRESET_LABEL[key]}</option>
+                ))}
               </select>
             </div>
             {blockPreset === "custom" && (
