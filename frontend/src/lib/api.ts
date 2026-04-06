@@ -111,6 +111,17 @@ export async function submitBids(
   return res.data;
 }
 
+export async function compareStrategies(
+  targetDate: string,
+  segment: string,
+  demandMw: number = 500,
+) {
+  const res = await api.get("/bids/compare-strategies", {
+    params: { target_date: targetDate, segment, demand_mw: demandMw },
+  });
+  return res.data;
+}
+
 export async function validateBids(
   targetDate: string,
   strategy: string,

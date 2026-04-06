@@ -23,6 +23,7 @@ import {
   submitBids,
   validateBids,
   assessRisk,
+  compareStrategies,
   type TrainConfig,
   type BidOptConfig,
 } from "@/lib/api";
@@ -356,6 +357,10 @@ export default function TradingDeskPage() {
   const [riskLoading, setRiskLoading] = useState(false);
   const [riskTimestamp, setRiskTimestamp] = useState("");
   const riskDebounceRef = useRef<NodeJS.Timeout | null>(null);
+
+  /* ── Strategy comparison ── */
+  const [strategyCompare, setStrategyCompare] = useState<any>(null);
+  const [strategyCompareLoading, setStrategyCompareLoading] = useState(false);
 
   /* ── Auto risk on bid change ── */
   useEffect(() => {
@@ -1911,6 +1916,175 @@ export default function TradingDeskPage() {
               )}
             </>
           )}
+
+          {/* ── Strategy Comparison ──────────────────────────────────── */}
+          <div className="card space-y-3">
+            <div className="flex items-center justify-between">
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                Strategy Comparison
+              </p>
+              <button
+                className="btn-secondary text-sm"
+                disabled={strategyCompareLoading}
+                onClick={async () => {
+                  setStrategyCompareLoading(true);
+                  try {
+                    const res = await compareStrategies(targetDate, segment, demandMw);
+                    setStrategyCompare(res);
+                  } catch (e: any) {
+                    alert(e.response?.data?.detail || "Strategy comparison failed");
+                  }
+                  setStrategyCompareLoading(false);
+                }}
+              >
+                {strategyCompareLoading ? "Comparing…" : "Compare All Strategies"}
+              </button>
+            </div>
+
+            {strategyCompare && (
+              <div className="space-y-4">
+                {!strategyCompare.has_actuals && (
+                  <p className="text-xs text-amber-500">
+                    No actual prices for {strategyCompare.target_date} — showing bid-side metrics only. Clearing simulation will appear once actuals are available.
+                  </p>
+                )}
+
+                {/* KPI Table */}
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="border-b border-gray-200 text-gray-400">
+                        <th className="text-left py-2 pr-4">Metric</th>
+                        {strategyCompare.strategies.map((s: any) => (
+                          <th
+                            key={s.strategy}
+                            className={`text-right py-2 px-3 capitalize ${
+                              s.strategy === "conservative"
+                                ? "text-green-600"
+                                : s.strategy === "balanced"
+                                  ? "text-[#006DAE]"
+                                  : "text-red-500"
+                            }`}
+                          >
+                            {s.strategy}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody className="text-gray-600">
+                      {[
+                        { label: "Avg Bid Price (₹/kWh)", key: "avg_bid_price", fmt: (v: number) => `₹${v.toFixed(2)}` },
+                        { label: "Total Volume (MW)", key: "total_volume_mw", fmt: (v: number) => v.toLocaleString() },
+                        { label: "Total Bid Value (₹)", key: "total_bid_value", fmt: (v: number) => formatINR(v) },
+                        { label: "Est. DSM Penalty (₹)", key: "estimated_dsm_penalty", fmt: (v: number) => formatINR(v) },
+                        { label: "Constraint Violations", key: "violation_count", fmt: (v: number) => String(v) },
+                        ...(strategyCompare.has_actuals
+                          ? [
+                              { label: "Hit Rate", key: "hit_rate", fmt: (v: number) => `${v.toFixed(1)}%` },
+                              { label: "Basket Rate (₹/kWh)", key: "basket_rate", fmt: (v: number) => `₹${v.toFixed(2)}` },
+                              { label: "vs Baseline", key: "basket_rate_change_pct", fmt: (v: number) => `${v > 0 ? "+" : ""}${v.toFixed(1)}%` },
+                              { label: "Cost Savings (₹)", key: "cost_savings", fmt: (v: number) => (v != null ? formatINR(v) : "—") },
+                            ]
+                          : []),
+                      ].map(({ label, key, fmt }) => (
+                        <tr key={key} className="border-b border-gray-100">
+                          <td className="py-1.5 pr-4 text-gray-400">{label}</td>
+                          {strategyCompare.strategies.map((s: any) => {
+                            const val = s[key];
+                            const isBest =
+                              key === "estimated_dsm_penalty" || key === "violation_count"
+                                ? val === Math.min(...strategyCompare.strategies.map((x: any) => x[key]))
+                                : key === "hit_rate" || key === "cost_savings"
+                                  ? val === Math.max(...strategyCompare.strategies.map((x: any) => x[key] ?? -Infinity))
+                                  : false;
+                            return (
+                              <td
+                                key={s.strategy}
+                                className={`text-right py-1.5 px-3 font-mono ${isBest ? "font-semibold text-green-600" : ""}`}
+                              >
+                                {fmt(val)}
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Visual comparison bars */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  {strategyCompare.strategies.map((s: any) => {
+                    const color =
+                      s.strategy === "conservative"
+                        ? "bg-green-500"
+                        : s.strategy === "balanced"
+                          ? "bg-[#006DAE]"
+                          : "bg-red-500";
+                    const borderColor =
+                      s.strategy === "conservative"
+                        ? "border-green-200"
+                        : s.strategy === "balanced"
+                          ? "border-blue-200"
+                          : "border-red-200";
+                    const maxVol = Math.max(
+                      ...strategyCompare.strategies.map((x: any) => x.total_volume_mw),
+                    );
+                    const maxPenalty = Math.max(
+                      ...strategyCompare.strategies.map((x: any) => x.estimated_dsm_penalty),
+                      1,
+                    );
+                    return (
+                      <div
+                        key={s.strategy}
+                        className={`border ${borderColor} rounded-lg p-3 space-y-2`}
+                      >
+                        <p className={`text-xs font-semibold uppercase tracking-wider capitalize ${
+                          s.strategy === "conservative"
+                            ? "text-green-600"
+                            : s.strategy === "balanced"
+                              ? "text-[#006DAE]"
+                              : "text-red-500"
+                        }`}>
+                          {s.strategy}
+                        </p>
+                        <div>
+                          <div className="flex justify-between text-[10px] text-gray-400 mb-0.5">
+                            <span>Volume</span>
+                            <span>{s.total_volume_mw.toLocaleString()} MW</span>
+                          </div>
+                          <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+                            <div
+                              className={`h-full ${color} rounded-full transition-all`}
+                              style={{ width: `${(s.total_volume_mw / maxVol) * 100}%` }}
+                            />
+                          </div>
+                        </div>
+                        <div>
+                          <div className="flex justify-between text-[10px] text-gray-400 mb-0.5">
+                            <span>DSM Penalty</span>
+                            <span>{formatINR(s.estimated_dsm_penalty)}</span>
+                          </div>
+                          <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+                            <div
+                              className="h-full bg-amber-400 rounded-full transition-all"
+                              style={{ width: `${(s.estimated_dsm_penalty / maxPenalty) * 100}%` }}
+                            />
+                          </div>
+                        </div>
+                        {strategyCompare.has_actuals && (
+                          <div className="flex justify-between text-xs pt-1 border-t border-gray-100">
+                            <span className="text-gray-400">Hit Rate</span>
+                            <span className="font-semibold">{s.hit_rate.toFixed(1)}%</span>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       )}
     </div>
