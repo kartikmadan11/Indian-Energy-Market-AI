@@ -113,15 +113,9 @@ export default function Sidebar() {
       </nav>
 
       {/* Footer */}
-      <div className="px-4 py-3 border-t border-[var(--border)] space-y-2">
-        <div className="flex items-center justify-between text-[10px] text-gray-600">
-          <span>v1.0.0</span>
-          <span>GCP · europe-west2</span>
-        </div>
-        <div className="flex items-center gap-1.5 text-[10px]">
-          <span className="w-1.5 h-1.5 bg-[var(--infy-teal)] rounded-full animate-pulse" />
-          <span className="text-[var(--infy-teal)]">Backend connected</span>
-        </div>
+      <div className="px-4 py-3 border-t border-[var(--border)] space-y-1">
+        <p className="text-[10px] font-semibold text-gray-400">Infosys Limited</p>
+        <p className="text-[9px] text-gray-600">© {new Date().getFullYear()} All rights reserved.</p>
       </div>
     </aside>
   );
