@@ -3,7 +3,7 @@ cd "$(dirname "$0")"
 
 # Start backend
 source .venv/bin/activate
-uvicorn backend.main:app --reload --port 8000 &
+SCHEDULER_ENABLED=true uvicorn backend.main:app --reload --port 8000 &
 BACKEND_PID=$!
 
 # Start frontend
