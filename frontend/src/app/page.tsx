@@ -84,7 +84,7 @@ export default function Home() {
           if (!dateMap.has(row.date)) dateMap.set(row.date, new Map());
           dateMap.get(row.date)!.set(row.block, row.mcp);
         }
-        const sortedDates = [...dateMap.keys()].sort();
+        const sortedDates = Array.from(dateMap.keys()).sort();
 
         const points: ChartPoint[] = [];
         for (const date of sortedDates) {
