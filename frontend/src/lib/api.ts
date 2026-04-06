@@ -115,4 +115,18 @@ export async function exportForecastCsv(segment: string) {
   return res.data;
 }
 
+export async function triggerScrape(segment: string, days: number = 3) {
+  const res = await api.post("/forecast/scrape", null, {
+    params: { segment, days },
+  });
+  return res.data as {
+    status: string;
+    segment: string;
+    days_requested: number;
+    scraped: number;
+    inserted: number;
+    dates_with_data: string[];
+  };
+}
+
 export default api;

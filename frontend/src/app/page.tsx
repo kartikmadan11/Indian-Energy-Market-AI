@@ -13,7 +13,7 @@ import {
   CartesianGrid,
   Legend,
 } from "recharts";
-import { getLatestForecast, getHistory, getHealth } from "@/lib/api";
+import { getLatestForecast, getHistory, getHealth, triggerScrape } from "@/lib/api";
 import { blockToTime } from "@/lib/utils";
 
 const SEGMENTS = ["DAM", "RTM", "TAM"] as const;
@@ -55,6 +55,8 @@ const CustomTooltip = ({ active, payload, label }: any) => {
   );
 };
 
+interface ScrapeInfo { latest_data: string | null; row_count: number }
+
 export default function Home() {
   const [data, setData] = useState<Record<Segment, SegmentState>>({
     DAM: { points: [], avgActual: 0, avgPred: null, hasPred: false, loaded: false },
@@ -62,73 +64,110 @@ export default function Home() {
     TAM: { points: [], avgActual: 0, avgPred: null, hasPred: false, loaded: false },
   });
   const [health, setHealth] = useState<any>(null);
+  const [scraping, setScraping] = useState<Record<Segment, boolean>>({ DAM: false, RTM: false, TAM: false });
+  const [scrapeInfo, setScrapeInfo] = useState<Record<Segment, ScrapeInfo | null>>({ DAM: null, RTM: null, TAM: null });
+  const [scrapeError, setScrapeError] = useState<Record<Segment, string | null>>({ DAM: null, RTM: null, TAM: null });
 
-  useEffect(() => {
-    getHealth().then(setHealth).catch(() => {});
+  const loadSegment = async (seg: Segment) => {
+    setData((prev) => ({ ...prev, [seg]: { ...prev[seg], loaded: false } }));
+    try {
+      const [histRaw, forecastRaw] = await Promise.allSettled([
+        getHistory(seg, 7),
+        getLatestForecast(seg),
+      ]);
 
-    SEGMENTS.forEach(async (seg) => {
-      try {
-        const [histRaw, forecastRaw] = await Promise.allSettled([
-          getHistory(seg, 7),
-          getLatestForecast(seg),
-        ]);
+      const histRows = histRaw.status === "fulfilled" ? histRaw.value : [];
+      const forecastBlocks =
+        forecastRaw.status === "fulfilled" && forecastRaw.value?.blocks?.length
+          ? forecastRaw.value.blocks
+          : null;
 
-        const histRows = histRaw.status === "fulfilled" ? histRaw.value : [];
-        const forecastBlocks =
-          forecastRaw.status === "fulfilled" && forecastRaw.value?.blocks?.length
-            ? forecastRaw.value.blocks
-            : null;
+      const dateMap = new Map<string, Map<number, number>>();
+      for (const row of histRows) {
+        if (!dateMap.has(row.date)) dateMap.set(row.date, new Map());
+        dateMap.get(row.date)!.set(row.block, row.mcp);
+      }
+      const sortedDates = Array.from(dateMap.keys()).sort();
 
-        const dateMap = new Map<string, Map<number, number>>();
-        for (const row of histRows) {
-          if (!dateMap.has(row.date)) dateMap.set(row.date, new Map());
-          dateMap.get(row.date)!.set(row.block, row.mcp);
-        }
-        const sortedDates = Array.from(dateMap.keys()).sort();
-
-        const points: ChartPoint[] = [];
-        for (const date of sortedDates) {
-          const blockMap = dateMap.get(date)!;
-          for (let b = 1; b <= 96; b++) {
-            const mcp = blockMap.get(b);
-            if (mcp !== undefined) {
-              points.push({
-                key: `${date}|${b}`,
-                label: `${date.slice(5)} ${blockToTime(b)}`,
-                actual: mcp,
-              });
-            }
-          }
-        }
-
-        if (forecastBlocks) {
-          for (const fb of forecastBlocks) {
+      const points: ChartPoint[] = [];
+      for (const date of sortedDates) {
+        const blockMap = dateMap.get(date)!;
+        for (let b = 1; b <= 96; b++) {
+          const mcp = blockMap.get(b);
+          if (mcp !== undefined) {
             points.push({
-              key: `pred|${fb.block}`,
-              label: `pred ${blockToTime(fb.block)}`,
-              predicted: fb.predicted_price,
-              ci_high: fb.confidence_high,
+              key: `${date}|${b}`,
+              label: `${date.slice(5)} ${blockToTime(b)}`,
+              actual: mcp,
             });
           }
         }
-
-        const actualVals = points.flatMap((p) => (p.actual !== undefined ? [p.actual] : []));
-        const predVals = points.flatMap((p) => (p.predicted !== undefined ? [p.predicted] : []));
-
-        setData((prev) => ({
-          ...prev,
-          [seg]: {
-            points,
-            avgActual: actualVals.length ? actualVals.reduce((s, v) => s + v, 0) / actualVals.length : 0,
-            avgPred: predVals.length ? predVals.reduce((s, v) => s + v, 0) / predVals.length : null,
-            hasPred: predVals.length > 0,
-            loaded: true,
-          },
-        }));
-      } catch {
-        setData((prev) => ({ ...prev, [seg]: { ...prev[seg], loaded: true } }));
       }
-    });
+
+      if (forecastBlocks) {
+        for (const fb of forecastBlocks) {
+          points.push({
+            key: `pred|${fb.block}`,
+            label: `pred ${blockToTime(fb.block)}`,
+            predicted: fb.predicted_price,
+            ci_high: fb.confidence_high,
+          });
+        }
+      }
+
+      const actualVals = points.flatMap((p) => (p.actual !== undefined ? [p.actual] : []));
+      const predVals = points.flatMap((p) => (p.predicted !== undefined ? [p.predicted] : []));
+
+      setData((prev) => ({
+        ...prev,
+        [seg]: {
+          points,
+          avgActual: actualVals.length ? actualVals.reduce((s, v) => s + v, 0) / actualVals.length : 0,
+          avgPred: predVals.length ? predVals.reduce((s, v) => s + v, 0) / predVals.length : null,
+          hasPred: predVals.length > 0,
+          loaded: true,
+        },
+      }));
+    } catch {
+      setData((prev) => ({ ...prev, [seg]: { ...prev[seg], loaded: true } }));
+    }
+  };
+
+  const handleScrape = async (seg: Segment) => {
+    setScraping((prev) => ({ ...prev, [seg]: true }));
+    setScrapeError((prev) => ({ ...prev, [seg]: null }));
+    try {
+      const result = await triggerScrape(seg, 3);
+      setScrapeInfo((prev) => ({
+        ...prev,
+        [seg]: {
+          latest_data: result.dates_with_data.at(-1) ?? null,
+          row_count: result.scraped,
+        },
+      }));
+      await loadSegment(seg);
+    } catch (err: any) {
+      setScrapeError((prev) => ({ ...prev, [seg]: err?.response?.data?.detail ?? "Scrape failed" }));
+    } finally {
+      setScraping((prev) => ({ ...prev, [seg]: false }));
+    }
+  };
+
+  useEffect(() => {
+    getHealth()
+      .then((h) => {
+        setHealth(h);
+        if (h?.segments) {
+          setScrapeInfo({
+            DAM: h.segments.DAM ?? null,
+            RTM: h.segments.RTM ?? null,
+            TAM: h.segments.TAM ?? null,
+          });
+        }
+      })
+      .catch(() => {});
+
+    SEGMENTS.forEach((seg) => loadSegment(seg));
   }, []);
 
   return (
@@ -161,12 +200,25 @@ export default function Home() {
         return (
           <div key={seg} className="card">
             <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <span className="text-sm font-bold" style={{ color: meta.color }}>{seg}</span>
                 <span className="text-xs text-gray-600 font-medium">{meta.label}</span>
                 <span className="text-[10px] text-gray-400">{meta.desc}</span>
+                {scrapeInfo[seg]?.latest_data && (
+                  <span className="text-[10px] text-gray-400 bg-gray-100 border border-gray-200 px-1.5 py-0.5 rounded">
+                    last scrape: <span className="font-medium text-gray-600">{scrapeInfo[seg]!.latest_data}</span>
+                    {scrapeInfo[seg]!.row_count > 0 && (
+                      <> · {scrapeInfo[seg]!.row_count.toLocaleString()} rows</>
+                    )}
+                  </span>
+                )}
+                {scrapeError[seg] && (
+                  <span className="text-[10px] text-red-500 bg-red-50 border border-red-200 px-1.5 py-0.5 rounded">
+                    {scrapeError[seg]}
+                  </span>
+                )}
               </div>
-              <div className="flex items-center gap-4">
+              <div className="flex items-center gap-3">
                 {state.avgActual > 0 && (
                   <div className="text-right">
                     <div className="text-[10px] text-gray-400 uppercase tracking-wider">7-day avg</div>
@@ -186,6 +238,30 @@ export default function Home() {
                 {!state.loaded && (
                   <span className="text-[10px] text-gray-400">Loading…</span>
                 )}
+                <button
+                  onClick={() => handleScrape(seg)}
+                  disabled={scraping[seg]}
+                  className="flex items-center gap-1 text-[11px] font-medium px-2.5 py-1 rounded border transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  style={{
+                    color: scraping[seg] ? "#9CA3AF" : meta.color,
+                    borderColor: scraping[seg] ? "#E5E7EB" : meta.color + "55",
+                    background: scraping[seg] ? "#F9FAFB" : meta.color + "0D",
+                  }}
+                  title={`Re-scrape last 3 days of ${seg} data from IEX`}
+                >
+                  {scraping[seg] ? (
+                    <svg className="w-3 h-3 animate-spin" viewBox="0 0 24 24" fill="none">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4l3-3-3-3v4a8 8 0 100 16v-4l-3 3 3 3v-4a8 8 0 01-8-8z"/>
+                    </svg>
+                  ) : (
+                    <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M1 4v6h6"/><path d="M23 20v-6h-6"/>
+                      <path d="M20.49 9A9 9 0 005.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 013.51 15"/>
+                    </svg>
+                  )}
+                  {scraping[seg] ? "Scraping…" : "Re-scrape"}
+                </button>
               </div>
             </div>
 
@@ -254,7 +330,7 @@ export default function Home() {
                       <Line
                         type="monotone"
                         dataKey="predicted"
-                        name="AI Forecast"
+                        name="Forecast"
                         stroke={meta.predColor}
                         strokeWidth={2}
                         dot={false}
