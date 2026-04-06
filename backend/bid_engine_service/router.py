@@ -21,10 +21,24 @@ async def recommend_bids(
     strategy: str = Query("balanced", pattern=r"^(conservative|balanced|aggressive)$"),
     segment: str = Query(..., pattern=r"^(DAM|RTM|TAM)$"),
     demand_mw: float = Query(500.0, ge=0),
-    price_offset: float | None = Query(default=None, ge=-5.0, le=5.0, description="Override strategy price offset"),
-    risk_tolerance: float | None = Query(default=None, ge=0.0, le=1.0, description="Override strategy risk tolerance (0=conservative, 1=aggressive)"),
-    volume_scale: float | None = Query(default=None, ge=0.1, le=3.0, description="Override strategy volume scale"),
-    per_block_cap_factor: float = Query(default=4.0, ge=1.0, le=20.0, description="Max volume per block as multiple of avg load"),
+    price_offset: float | None = Query(
+        default=None, ge=-5.0, le=5.0, description="Override strategy price offset"
+    ),
+    risk_tolerance: float | None = Query(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description="Override strategy risk tolerance (0=conservative, 1=aggressive)",
+    ),
+    volume_scale: float | None = Query(
+        default=None, ge=0.1, le=3.0, description="Override strategy volume scale"
+    ),
+    per_block_cap_factor: float = Query(
+        default=4.0,
+        ge=1.0,
+        le=20.0,
+        description="Max volume per block as multiple of avg load",
+    ),
     db: AsyncSession = Depends(get_db),
 ):
     """Generate AI-optimized bid recommendations for all 96 blocks."""
@@ -53,7 +67,10 @@ async def recommend_bids(
     ]
 
     recs = generate_recommendations(
-        forecast_dicts, strategy, demand_mw, segment,
+        forecast_dicts,
+        strategy,
+        demand_mw,
+        segment,
         price_offset_override=price_offset,
         risk_tolerance_override=risk_tolerance,
         volume_scale_override=volume_scale,
