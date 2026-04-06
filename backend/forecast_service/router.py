@@ -2,11 +2,9 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func as sql_func
-from datetime import datetime, timedelta, date as date_type
-import asyncio
+from datetime import datetime, timedelta
 import pandas as pd
 import io
-from pathlib import Path
 
 from backend.common.database import get_db
 from backend.common.models import PriceHistory, Forecast
@@ -299,58 +297,3 @@ async def train_model(req: TrainRequest = None, db: AsyncSession = Depends(get_d
     _invalidate_history_cache(segment)
 
     return {"status": "trained", "segment": segment, "metrics": metrics}
-
-
-@router.post("/scrape")
-async def trigger_scrape(
-    segment: str = Query(..., pattern=r"^(DAM|RTM|TAM)$"),
-    days: int = Query(default=3, ge=1, le=30),
-):
-    """
-    Trigger an on-demand scrape from IEX India for the given segment and
-    the last `days` calendar days. Runs the CLI scraper in a thread so
-    the async event loop is not blocked.
-    """
-    DB_PATH = Path(__file__).resolve().parent.parent.parent / "backend" / "data" / "platform.db"
-
-    end = date_type.today()
-    start = end - timedelta(days=days - 1)
-    date_range = [
-        (start + timedelta(days=i)).isoformat() for i in range(days)
-    ]
-
-    def _run_scrape() -> dict:
-        total = {"scraped": 0, "inserted": 0, "dates": []}
-        if segment in ("DAM", "RTM"):
-            from backend.data.scrape_iex import scrape_date
-            for d in date_range:
-                result = scrape_date(d, [segment], DB_PATH)
-                seg_result = result.get(segment, {})
-                total["scraped"] += seg_result.get("scraped", 0)
-                total["inserted"] += seg_result.get("inserted", 0)
-                if seg_result.get("scraped", 0) > 0:
-                    total["dates"].append(d)
-        elif segment == "TAM":
-            from backend.data.scrape_tam import fetch_tam_rsc, records_to_rows, store_rows
-            raw = fetch_tam_rsc(start.isoformat(), end.isoformat(), contract_type="DAC")
-            rows = records_to_rows(raw)
-            inserted = store_rows(rows, DB_PATH)
-            total["scraped"] = len(rows)
-            total["inserted"] = inserted
-            total["dates"] = list({r["date"] for r in rows})
-        return total
-
-    try:
-        loop = asyncio.get_event_loop()
-        result = await loop.run_in_executor(None, _run_scrape)
-        _invalidate_history_cache(segment)
-        return {
-            "status": "ok",
-            "segment": segment,
-            "days_requested": days,
-            "scraped": result["scraped"],
-            "inserted": result["inserted"],
-            "dates_with_data": sorted(result["dates"]),
-        }
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc

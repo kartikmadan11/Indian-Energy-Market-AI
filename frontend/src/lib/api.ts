@@ -115,17 +115,47 @@ export async function exportForecastCsv(segment: string) {
   return res.data;
 }
 
-export async function triggerScrape(segment: string, days: number = 3) {
-  const res = await api.post("/forecast/scrape", null, {
-    params: { segment, days },
-  });
+export async function triggerScrape(
+  segment: string,
+  days: number = 3,
+  startDate?: string,
+  endDate?: string
+) {
+  const params: Record<string, string | number> = { segment, days };
+  if (startDate) params.start_date = startDate;
+  if (endDate) params.end_date = endDate;
+  const res = await api.post("/scraper/trigger", null, { params });
   return res.data as {
     status: string;
     segment: string;
-    days_requested: number;
+    start_date: string;
+    end_date: string;
     scraped: number;
     inserted: number;
     dates_with_data: string[];
+    errors: string[];
+  };
+}
+
+export async function triggerScrapeAll(days: number = 3) {
+  const res = await api.post("/scraper/trigger-all", null, { params: { days } });
+  return res.data as {
+    start_date: string;
+    end_date: string;
+    segments: Record<
+      string,
+      { status: string; scraped: number; inserted: number; dates_with_data: string[]; errors: string[] }
+    >;
+  };
+}
+
+export async function getScrapeStatus() {
+  const res = await api.get("/scraper/status");
+  return res.data as {
+    segments: Record<
+      string,
+      { latest_date: string | null; earliest_date: string | null; row_count: number }
+    >;
   };
 }
 

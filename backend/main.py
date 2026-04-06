@@ -10,6 +10,7 @@ from backend.forecast_service.router import router as forecast_router
 from backend.bid_engine_service.router import router as bid_router
 from backend.risk_service.router import router as risk_router
 from backend.audit_service.router import router as audit_router
+from backend.scraper_service.router import router as scraper_router
 from backend.jobs.scheduler import start_scheduler, stop_scheduler
 
 
@@ -69,6 +70,7 @@ app.include_router(forecast_router, prefix="/api")
 app.include_router(bid_router, prefix="/api")
 app.include_router(risk_router, prefix="/api")
 app.include_router(audit_router, prefix="/api")
+app.include_router(scraper_router, prefix="/api")
 
 
 @app.get("/api/health")
