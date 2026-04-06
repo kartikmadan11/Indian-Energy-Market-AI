@@ -129,34 +129,40 @@ frontend/src/
 
 ## What's Left (TODOs)
 
-### High Priority — PS Gaps (Must-Have)
+> Cross-referenced against the problem setter's walkthrough (transcript). Items marked with `[PS]` were explicitly called out as must-have or good-to-have by the problem setter.
 
-- [x] ~~**Confidence intervals on forecasts**~~ — Already implemented: `model.predict()` returns 95% CI (`confidence_low`/`confidence_high`) + volatility per block; FE renders CI bands in AreaChart
-- [x] ~~**Data outage graceful degradation**~~ — Done! `GET /forecast/latest` returns cached predictions, `GET /forecast/export-csv` for manual upload, FE shows yellow offline banner with stale timestamp, CSV download button
-- [x] ~~**Risk alert latency (<2s)**~~ — Done! Measured 1.8ms server-side (via `X-Risk-Latency-Ms` header). Async DB persist via BackgroundTasks. FE: auto-re-assess on bid edits (600ms debounce) with live risk panel in Bid Workspace
+### Must-Have (from PS walkthrough) — not yet done
 
-### High Priority — Strengthens the Submission
+- [ ] **[PS] IEX API integration for live bid submission** — PS explicitly said the API signature should match IEX's actual endpoint so it works in a real scenario. Currently bids are stored locally; there is no outbound call to IEX for submission. Need to wire `POST /api/bids/submit` to hit the IEX submission endpoint (or clearly mock it with matching payload schema).
+- [ ] **[PS] Two-step approval workflow** — PS said a *Trading Operator* fills and reviews the bid, a *Trading Manager* approves it before it goes to the exchange. Currently there is only one user role and no approval gate. Need: draft → operator-submit → manager-approve → exchange-submit state machine.
+- [ ] **[PS] Contract compliance check (not just DSM)** — PS explicitly said there are *two* compliance layers: DSM regulation and bilateral contract terms (e.g. a 10-year PPA). The risk engine currently only checks DSM (CERC 2024 draft). Contract constraint validation (min/max volume, counterparty, duration) is missing.
+- [ ] **[PS] Feedback / continuous learning loop** — PS said post-market outcomes (actual vs forecast) must feed back into the model as a continuous improvement cycle. Currently `GET /api/audit/post-market` computes the error metrics but nothing triggers a retrain or updates feature weights from this data.
+- [ ] **[PS] Explainability output visible to the trader** — PS specifically asked for "explainable AI" so the trader understands *why* a forecast was made. `top_features` is returned by the model but the frontend does not display feature importance per block. Needs a visible breakdown in the forecast UI.
 
-- [ ] **Unit & integration tests** — API route tests (forecast, bids, risk), model training tests, constraint validation edge cases
-- [ ] **PuLP-based bid optimization** — Replace heuristic weighting with LP/MILP formulation (PuLP already in requirements.txt, just not wired)
-- [x] ~~**TAM segment**~~ — Done! 5,868 rows scraped via RSC, 3.83% MAPE model trained
-- [ ] **Weather API integration** — `temperature` column exists but always 0; plug in OpenWeatherMap or IMD for real temperature data to improve forecast accuracy
+### Must-Have (from PS walkthrough) — already done ✅
 
-### Medium Priority — PS Good-to-Have
+- [x] **[PS] 96-block (15-min) price forecasting for DAM, RTM, TAM** — Done. All 3 segments trained. DAM 2.27% MAPE, RTM 3.14%, TAM 3.83%.
+- [x] **[PS] Confidence intervals on forecasts** — Done. `model.predict()` returns 95% CI (`confidence_low`/`confidence_high`) + volatility per block; FE renders as AreaChart bands.
+- [x] **[PS] DSM compliance enforcement** — Done. `POST /api/bids/validate` checks CERC price/volume limits; risk engine estimates penalty.
+- [x] **[PS] Human override before submission** — Done. Bid workspace allows editing any block's price/volume with a required reason field before submission.
+- [x] **[PS] Audit trail** — Done. Immutable action log captures create_bid, override, submit, approve with session grouping.
+- [x] **[PS] Post-market performance analysis** — Done. Predicted vs actual comparison, MAPE/hit-rate/basket-rate metrics, penalty breakdown.
+- [x] **[PS] Real IEX data** — Done. 40,620 rows scraped from IEX REST API (Oct 2025–Mar 2026).
+- [x] **[PS] Daily scrape + auto-retrain scheduler** — Done. APScheduler cron at 01:10 IST, running on GCP VM.
 
-- [ ] **Multi-exchange data** — DB has `exchange` column (IEX/PXIL/HPX) but only IEX is scraped; PS wants fallback logic for exchange outages
-- [ ] **Arbitrage detection** — PS good-to-have: flag blocks where DAM vs RTM or cross-exchange price spreads create profitable opportunities
-- [ ] **Automated learning loop** — Feed post-market outcomes back into the forecasting model (even mock counts per PS)
-- [ ] **Two-step approval workflow** — Route high-value bids to Trading Manager for approval; include draft versioning
-- [ ] **Real-time alerts** — Push notifications for price spikes, DSM deviation thresholds, submission deadlines
-- [ ] **Scheduled data refresh** — Cron/APScheduler for daily scraping + auto-retraining
+### Good-to-Have (from PS walkthrough)
 
-### Lower Priority — Production Readiness
+- [ ] **[PS] UPI/ONDC small-party participation** — PS mentioned enabling common individuals (e.g. rooftop solar farmers) via UPI or a beacon-based platform. Out of scope for core submission but noted as extension.
+- [ ] **[PS] Multi-exchange support (PXIL, HPX)** — PS said data should come from IEX but acknowledged PXIL and HPX exist; DB has `exchange` column but only IEX is scraped.
+- [ ] **[PS] Arbitrage detection across segments** — Flag blocks where DAM vs RTM or cross-exchange spreads create a profitable opportunity.
+- [ ] **[PS] Real-time market monitoring post-submission** — After a bid is submitted, the system should poll IEX to track whether the bid was cleared, partially matched, or rejected. Currently there is no status-tracking loop.
 
-- [ ] **Authentication / RBAC** — Currently single-user (`user="trader"`); add JWT or session-based auth
-- [ ] **Dockerfile + docker-compose** — Containerized deployment
-- [ ] **CI/CD pipeline** — GitHub Actions for lint + test + build
-- [ ] **Renewable generation forecast model** — Dedicated solar/wind generation predictor
+### Not in PS Scope but Still Gaps
+
+- [ ] **Weather API integration** — `temperature` column in DB always 0; plugging in IMD/OpenWeatherMap would meaningfully improve forecast accuracy (temperature is a key demand driver).
+- [ ] **Unit & integration tests** — API route tests, constraint validation edge cases, model training reproducibility.
+- [ ] **Authentication / RBAC** — Operator vs Manager role separation required for the two-step approval workflow above.
+- [ ] **Dockerfile + docker-compose** — Currently requires manual venv + npm setup.
 
 ---
 

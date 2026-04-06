@@ -1,7 +1,9 @@
 from contextlib import asynccontextmanager
+from pathlib import Path
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.docs import get_swagger_ui_html, get_redoc_html
+from fastapi.staticfiles import StaticFiles
 
 from backend.common.database import init_db
 from backend.forecast_service.router import router as forecast_router
@@ -34,8 +36,8 @@ async def custom_swagger_ui():
     return get_swagger_ui_html(
         openapi_url=app.openapi_url,
         title=app.title + " - Docs",
-        swagger_js_url="https://unpkg.com/swagger-ui-dist@5/swagger-ui-bundle.js",
-        swagger_css_url="https://unpkg.com/swagger-ui-dist@5/swagger-ui.css",
+        swagger_js_url="/static/swagger/swagger-ui-bundle.js",
+        swagger_css_url="/static/swagger/swagger-ui.css",
     )
 
 
@@ -44,7 +46,7 @@ async def custom_redoc():
     return get_redoc_html(
         openapi_url=app.openapi_url,
         title=app.title + " - ReDoc",
-        redoc_js_url="https://unpkg.com/redoc@next/bundles/redoc.standalone.js",
+        redoc_js_url="https://cdn.jsdelivr.net/npm/redoc@2.1.5/bundles/redoc.standalone.js",
     )
 
 app.add_middleware(
@@ -59,6 +61,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+_STATIC_DIR = Path(__file__).parent / "static"
+app.mount("/static", StaticFiles(directory=_STATIC_DIR), name="static")
 
 app.include_router(forecast_router, prefix="/api")
 app.include_router(bid_router, prefix="/api")

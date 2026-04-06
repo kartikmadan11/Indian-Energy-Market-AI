@@ -4,6 +4,9 @@ __pycache__/
 *.egg-info/
 .venv/
 
+# Static assets (local swagger-ui bundle — not committed, run: npm install swagger-ui-dist)
+backend/static/
+
 # Data / Models
 backend/data/platform.db
 backend/data/models/*.pkl

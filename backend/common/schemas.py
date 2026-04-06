@@ -131,6 +131,8 @@ class BidRecommendation(BaseModel):
     price: float
     volume_mw: float
     strategy: str
+    dsm_penalty_estimate: float = 0.0
+    uncertainty_score: float = 0.0
     constraint_violations: list[ConstraintViolation] = []
 
 

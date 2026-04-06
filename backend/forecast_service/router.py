@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func as sql_func
-from datetime import datetime
+from datetime import datetime, timedelta
 import pandas as pd
 import io
 
@@ -15,6 +15,17 @@ router = APIRouter(prefix="/forecast", tags=["Forecast"])
 
 # Cache loaded models per segment
 _models: dict[str, PriceForecastModel] = {}
+
+# History cache: segment -> (DataFrame, expiry datetime)
+_history_cache: dict[str, tuple[pd.DataFrame, datetime]] = {}
+_HISTORY_TTL = timedelta(minutes=15)
+
+
+def _invalidate_history_cache(segment: str | None = None) -> None:
+    if segment:
+        _history_cache.pop(segment, None)
+    else:
+        _history_cache.clear()
 
 
 def _get_model(segment: str) -> PriceForecastModel:
@@ -47,33 +58,37 @@ async def predict_prices(
             503, f"No trained model for {segment}. POST /forecast/train first."
         )
 
-    # Fetch recent history for feature engineering
-    result = await db.execute(
-        select(PriceHistory)
-        .where(PriceHistory.segment == segment)
-        .order_by(PriceHistory.date.desc(), PriceHistory.block)
-        .limit(96 * 30)  # last ~30 days
-    )
-    rows = result.scalars().all()
-    if not rows:
-        raise HTTPException(400, "No historical data available. Load data first.")
-
-    history_df = pd.DataFrame(
-        [
-            {
-                "date": r.date,
-                "block": r.block,
-                "segment": r.segment,
-                "mcp": r.mcp,
-                "mcv": r.mcv,
-                "demand_mw": r.demand_mw,
-                "supply_mw": r.supply_mw,
-                "renewable_gen_mw": r.renewable_gen_mw,
-                "temperature": r.temperature,
-            }
-            for r in rows
-        ]
-    )
+    # Fetch recent history for feature engineering (cached for 15 min)
+    cached = _history_cache.get(segment)
+    if cached and datetime.utcnow() < cached[1]:
+        history_df = cached[0]
+    else:
+        result = await db.execute(
+            select(PriceHistory)
+            .where(PriceHistory.segment == segment)
+            .order_by(PriceHistory.date.desc(), PriceHistory.block)
+            .limit(96 * 30)  # last ~30 days
+        )
+        rows = result.scalars().all()
+        if not rows:
+            raise HTTPException(400, "No historical data available. Load data first.")
+        history_df = pd.DataFrame(
+            [
+                {
+                    "date": r.date,
+                    "block": r.block,
+                    "segment": r.segment,
+                    "mcp": r.mcp,
+                    "mcv": r.mcv,
+                    "demand_mw": r.demand_mw,
+                    "supply_mw": r.supply_mw,
+                    "renewable_gen_mw": r.renewable_gen_mw,
+                    "temperature": r.temperature,
+                }
+                for r in rows
+            ]
+        )
+        _history_cache[segment] = (history_df, datetime.utcnow() + _HISTORY_TTL)
 
     blocks = model.predict(target_date, history_df)
 
@@ -262,5 +277,6 @@ async def train_model(req: TrainRequest = None, db: AsyncSession = Depends(get_d
 
     metrics = model.train(df, **train_kwargs)
     _models[segment] = model
+    _invalidate_history_cache(segment)
 
     return {"status": "trained", "segment": segment, "metrics": metrics}

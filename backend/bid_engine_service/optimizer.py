@@ -1,19 +1,56 @@
 """
 Bid optimization engine using linear programming (PuLP).
-Generates volume/price recommendations under DSM constraints per strategy.
+
+Objective (minimise, since PuLP minimises):
+  Σ_b [ -price[b]·v[b]                   # maximise cleared value
+        + λ1·(d_over[b] + d_under[b])·price[b]·DSM_PENALTY_RATE  # DSM penalty cost
+        + λ2·ci_width[b]·v[b] ]           # uncertainty penalty
+
+Decision variables:
+  v[b]       ≥ 0        volume in MW per block
+  d_over[b]  ≥ 0        MW deviation above 1.1×load[b]
+  d_under[b] ≥ 0        MW deviation below 0.9×load[b]
+
+Hard constraints:
+  Σ v[b] ≤ total_demand_mw          (don't overbuy in aggregate)
+  v[b]   ≤ per_block_cap            (no single-block concentration)
+  v[b]   ≥ 1.0  (DAM/RTM)          (CERC technical minimum)
+  d_over[b]  ≥ v[b] - 1.1·load[b]  (linearise over-deviation)
+  d_under[b] ≥ 0.9·load[b] - v[b]  (linearise under-deviation)
+
+λ1, λ2 are derived from strategy risk_tolerance:
+  λ1 = (1 - risk_tolerance) × 2.0
+  λ2 = (1 - risk_tolerance) × 1.5
 """
 
+import logging
+
 import numpy as np
-from pulp import LpProblem, LpMinimize, LpVariable, lpSum, PULP_CBC_CMD
+from pulp import (
+    LpProblem,
+    LpMinimize,
+    LpVariable,
+    lpSum,
+    PULP_CBC_CMD,
+    value as lp_value,
+)
 
 from backend.common.config import (
     DSM_PRICE_FLOOR,
     DSM_PRICE_CEILING,
     DSM_DEVIATION_BAND,
+    DSM_PENALTY_RATE,
     STRATEGY_PROFILES,
     NUM_BLOCKS,
+    BLOCK_DURATION_MIN,
 )
 from backend.common.schemas import ConstraintViolation
+
+logger = logging.getLogger(__name__)
+
+# Max volume a single block may receive (4× average = 4/96 of daily demand).
+# Prevents the LP from dumping all volume into the single cheapest block.
+_PER_BLOCK_CAP_FACTOR = 4.0
 
 
 def validate_constraints(
@@ -77,60 +114,140 @@ def generate_recommendations(
     segment: str,
 ) -> list[dict]:
     """
-    Generate optimized bid recommendations for all 96 blocks.
-    Uses forecasted prices + strategy profile to set price/volume.
+    Generate LP-optimised bid recommendations for all 96 blocks.
+
+    Bid price is fixed per block (predicted MCP ± strategy offset × volatility).
+    Volume allocation is the LP decision variable, optimised to maximise cleared
+    value while penalising DSM deviation risk and forecast uncertainty.
     """
     profile = STRATEGY_PROFILES[strategy]
     price_offset = profile["price_offset"]
-    volume_scale = profile["volume_scale"]
     risk_tolerance = profile["risk_tolerance"]
 
-    recommendations = []
-    total_demand = demand_mw
+    # λ weights: higher risk_tolerance → lower penalty → more aggressive
+    lambda1 = (1.0 - risk_tolerance) * 2.0  # DSM penalty weight
+    lambda2 = (1.0 - risk_tolerance) * 1.5  # uncertainty (CI width) weight
 
-    # Sort blocks by predicted price (buy low)
-    sorted_blocks = sorted(forecasts, key=lambda f: f["predicted_price"])
+    # Uniform scheduled load per block (MW) — baseline for DSM deviation check
+    load_per_block = demand_mw / NUM_BLOCKS
+    per_block_cap = load_per_block * _PER_BLOCK_CAP_FACTOR
 
-    # Allocate more volume to cheaper blocks
-    prices = np.array([f["predicted_price"] for f in sorted_blocks])
-    # Inverse price weighting: cheaper blocks get more volume
-    weights = 1.0 / np.clip(prices, 0.1, None)
-    weights = weights / weights.sum()
-
-    volume_per_block = weights * total_demand * volume_scale
-
-    block_allocations = {}
-    for f, vol in zip(sorted_blocks, volume_per_block):
-        block_allocations[f["block"]] = vol
-
+    # Pre-compute bid prices and CI widths (these are fixed, not LP variables)
+    block_data: dict[int, dict] = {}
     for fc in forecasts:
-        block = fc["block"]
-        pred_price = fc["predicted_price"]
-        volatility = fc.get("volatility", pred_price * 0.1)
+        b = fc["block"]
+        pred = fc["predicted_price"]
+        vol = fc.get("volatility", pred * 0.1)
+        ci_low = fc.get("confidence_low", pred - vol)
+        ci_high = fc.get("confidence_high", pred + vol)
+        ci_width = max(ci_high - ci_low, 0.0)
 
-        # Adjust bid price based on strategy
-        # Conservative: bid lower to ensure clearing
-        # Aggressive: bid higher, willing to risk non-clearing
-        bid_price = pred_price + price_offset * volatility
+        bid_price = pred + price_offset * vol
         bid_price = max(bid_price, DSM_PRICE_FLOOR + 0.01)
         bid_price = min(bid_price, DSM_PRICE_CEILING - 0.01)
 
-        vol = max(block_allocations.get(block, total_demand / NUM_BLOCKS), 0)
-        # Round to 1 decimal
-        vol = round(vol, 1)
-        if segment in ("DAM", "RTM") and 0 < vol < 1.0:
-            vol = 1.0  # technical minimum
+        block_data[b] = {
+            "pred_price": pred,
+            "bid_price": bid_price,
+            "ci_width": ci_width,
+            "volatility": vol,
+        }
 
-        violations = validate_constraints(block, bid_price, vol, segment)
+    blocks = sorted(block_data.keys())
+
+    # ── Build LP ────────────────────────────────────────────────────────
+    prob = LpProblem("bid_optimisation", LpMinimize)
+
+    # Decision variables
+    v = {b: LpVariable(f"v_{b}", lowBound=0.0, upBound=per_block_cap) for b in blocks}
+    d_over = {b: LpVariable(f"d_over_{b}", lowBound=0.0) for b in blocks}
+    d_under = {b: LpVariable(f"d_under_{b}", lowBound=0.0) for b in blocks}
+
+    # Objective: minimise negative cleared value + DSM penalty cost + uncertainty cost
+    prob += lpSum(
+        -block_data[b]["bid_price"] * v[b]
+        + lambda1
+        * (d_over[b] + d_under[b])
+        * block_data[b]["bid_price"]
+        * DSM_PENALTY_RATE
+        + lambda2 * block_data[b]["ci_width"] * v[b]
+        for b in blocks
+    )
+
+    # Constraint 1: total volume ≤ total daily demand
+    prob += lpSum(v[b] for b in blocks) <= demand_mw
+
+    for b in blocks:
+        load = load_per_block
+
+        # Constraint 2: DSM linearisation — over-deviation auxiliary
+        # d_over[b] ≥ v[b] - (1 + DSM_DEVIATION_BAND) × load
+        prob += d_over[b] >= v[b] - (1.0 + DSM_DEVIATION_BAND) * load
+
+        # Constraint 3: DSM linearisation — under-deviation auxiliary
+        # d_under[b] ≥ (1 - DSM_DEVIATION_BAND) × load - v[b]
+        prob += d_under[b] >= (1.0 - DSM_DEVIATION_BAND) * load - v[b]
+
+        # Constraint 4: CERC technical minimum for DAM/RTM
+        # Enforce as a lower bound only if demand is large enough to warrant it
+        if segment in ("DAM", "RTM") and load_per_block >= 1.0:
+            prob += v[b] >= 1.0
+
+    # ── Solve ───────────────────────────────────────────────────────────
+    solver = PULP_CBC_CMD(msg=0)  # suppress CBC stdout
+    status = prob.solve(solver)
+
+    # Fall back to uniform allocation if LP fails (infeasible / unbounded)
+    if status != 1:
+        logger.warning(
+            "LP solver returned status %s for strategy=%s segment=%s — "
+            "falling back to uniform allocation",
+            status,
+            strategy,
+            segment,
+        )
+        uniform_vol = demand_mw / NUM_BLOCKS
+        lp_volumes = {b: uniform_vol for b in blocks}
+    else:
+        lp_volumes = {b: max(lp_value(v[b]) or 0.0, 0.0) for b in blocks}
+
+    # ── Build response ──────────────────────────────────────────────────
+    duration_hours = BLOCK_DURATION_MIN / 60.0
+    recommendations = []
+
+    for b in blocks:
+        bd = block_data[b]
+        vol_mw = round(lp_volumes[b], 1)
+
+        # Apply technical minimum post-solve (can't encode as conditional in LP)
+        if segment in ("DAM", "RTM") and 0 < vol_mw < 1.0:
+            vol_mw = 1.0
+
+        # DSM penalty estimate for this block (informational, used by UI)
+        deviation = abs(vol_mw - load_per_block) / max(load_per_block, 0.01)
+        excess_dev = max(0.0, deviation - DSM_DEVIATION_BAND)
+        dsm_penalty_est = round(
+            excess_dev
+            * load_per_block
+            * bd["bid_price"]
+            * DSM_PENALTY_RATE
+            * duration_hours
+            * 1000,
+            2,
+        )
+
+        violations = validate_constraints(b, bd["bid_price"], vol_mw, segment)
 
         recommendations.append(
             {
-                "block": block,
+                "block": b,
                 "segment": segment,
-                "price": round(bid_price, 4),
-                "volume_mw": vol,
+                "price": round(bd["bid_price"], 4),
+                "volume_mw": vol_mw,
                 "strategy": strategy,
-                "constraint_violations": [v.model_dump() for v in violations],
+                "dsm_penalty_estimate": dsm_penalty_est,
+                "uncertainty_score": round(bd["ci_width"], 4),
+                "constraint_violations": [v_.model_dump() for v_ in violations],
             }
         )
 
