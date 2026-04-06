@@ -191,6 +191,23 @@ async def export_forecast_csv(
     )
 
 
+@router.get("/history")
+async def get_price_history(
+    segment: str = Query(..., pattern=r"^(DAM|RTM|TAM)$"),
+    days: int = Query(default=7, ge=1, le=60),
+    db: AsyncSession = Depends(get_db),
+):
+    """Return the last `days` days of scraped MCP data for a segment."""
+    result = await db.execute(
+        select(PriceHistory.date, PriceHistory.block, PriceHistory.mcp)
+        .where(PriceHistory.segment == segment)
+        .order_by(PriceHistory.date.desc(), PriceHistory.block)
+        .limit(days * 96)
+    )
+    rows = result.all()
+    return [{"date": r.date, "block": r.block, "mcp": r.mcp} for r in rows]
+
+
 @router.get("/health")
 async def forecast_health(db: AsyncSession = Depends(get_db)):
     """Health check: DB connectivity + latest data timestamps per segment."""

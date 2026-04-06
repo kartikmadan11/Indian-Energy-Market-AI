@@ -102,6 +102,11 @@ export async function getLatestForecast(segment: string) {
   return res.data;
 }
 
+export async function getHistory(segment: string, days: number = 7) {
+  const res = await api.get("/forecast/history", { params: { segment, days } });
+  return res.data as { date: string; block: number; mcp: number }[];
+}
+
 export async function exportForecastCsv(segment: string) {
   const res = await api.get("/forecast/export-csv", {
     params: { segment },
