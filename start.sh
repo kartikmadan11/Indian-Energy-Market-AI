@@ -2,8 +2,17 @@
 cd "$(dirname "$0")"
 
 # Start backend
-source .venv/bin/activate
-SCHEDULER_ENABLED=true uvicorn backend.main:app --reload --port 8000 &
+. .venv/bin/activate
+
+# Enable scheduler only if APScheduler is importable in this environment.
+if .venv/bin/python -c "import importlib.util, sys; sys.exit(0 if importlib.util.find_spec('apscheduler') else 1)"; then
+  SCHEDULER_ENABLED="${SCHEDULER_ENABLED:-true}"
+else
+  echo "APScheduler not available in .venv. Starting backend with scheduler disabled."
+  SCHEDULER_ENABLED=false
+fi
+
+SCHEDULER_ENABLED="$SCHEDULER_ENABLED" uvicorn backend.main:app --reload --port 8000 &
 BACKEND_PID=$!
 
 # Start frontend

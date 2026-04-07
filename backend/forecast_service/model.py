@@ -208,7 +208,11 @@ class PriceForecastModel:
 
         if tuning:
             # ── Hyperparameter search ───────────────────────────────
-            param_grid = tuning.get("param_grid") or DEFAULT_PARAM_GRID
+            raw_grid = tuning.get("param_grid") or {}
+            # Sanitise: sklearn requires each value to be a list/array.
+            # Drop any keys with non-list values (e.g. Swagger placeholder {}).
+            valid_grid = {k: v for k, v in raw_grid.items() if isinstance(v, (list, tuple))}
+            param_grid = valid_grid if valid_grid else DEFAULT_PARAM_GRID
             method = tuning.get("method", "random")
             cv_folds = tuning.get("cv_folds", 5)
             scoring = tuning.get("scoring", "neg_mean_absolute_percentage_error")

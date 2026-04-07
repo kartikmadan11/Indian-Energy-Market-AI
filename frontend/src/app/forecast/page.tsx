@@ -472,6 +472,7 @@ export default function TradingDeskPage() {
             n_iter: tuning.n_iter,
             cv_folds: tuning.cv_folds,
             scoring: tuning.scoring,
+            // param_grid intentionally omitted — backend uses its own defaults
           }
         : null,
     };
