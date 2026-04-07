@@ -125,9 +125,21 @@ def generate_recommendations(
     value while penalising DSM deviation risk and forecast uncertainty.
     """
     profile = STRATEGY_PROFILES[strategy]
-    price_offset = price_offset_override if price_offset_override is not None else profile["price_offset"]
-    risk_tolerance = risk_tolerance_override if risk_tolerance_override is not None else profile["risk_tolerance"]
-    volume_scale = volume_scale_override if volume_scale_override is not None else profile["volume_scale"]
+    price_offset = (
+        price_offset_override
+        if price_offset_override is not None
+        else profile["price_offset"]
+    )
+    risk_tolerance = (
+        risk_tolerance_override
+        if risk_tolerance_override is not None
+        else profile["risk_tolerance"]
+    )
+    volume_scale = (
+        volume_scale_override
+        if volume_scale_override is not None
+        else profile["volume_scale"]
+    )
 
     # λ weights: higher risk_tolerance → lower penalty → more aggressive
     lambda1 = (1.0 - risk_tolerance) * 2.0  # DSM penalty weight

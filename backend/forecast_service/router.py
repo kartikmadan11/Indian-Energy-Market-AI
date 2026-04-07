@@ -144,7 +144,9 @@ async def predict_prices_range(
 
     model = _get_model(segment)
     if model.model is None:
-        raise HTTPException(503, f"No trained model for {segment}. POST /forecast/train first.")
+        raise HTTPException(
+            503, f"No trained model for {segment}. POST /forecast/train first."
+        )
 
     # Reuse history cache (same as single-day endpoint)
     cached = _history_cache.get(segment)
@@ -163,9 +165,14 @@ async def predict_prices_range(
         history_df = pd.DataFrame(
             [
                 {
-                    "date": r.date, "block": r.block, "segment": r.segment,
-                    "mcp": r.mcp, "mcv": r.mcv, "demand_mw": r.demand_mw,
-                    "supply_mw": r.supply_mw, "renewable_gen_mw": r.renewable_gen_mw,
+                    "date": r.date,
+                    "block": r.block,
+                    "segment": r.segment,
+                    "mcp": r.mcp,
+                    "mcv": r.mcv,
+                    "demand_mw": r.demand_mw,
+                    "supply_mw": r.supply_mw,
+                    "renewable_gen_mw": r.renewable_gen_mw,
                     "temperature": r.temperature,
                 }
                 for r in rows
@@ -179,19 +186,32 @@ async def predict_prices_range(
         date_str = current.strftime("%Y-%m-%d")
         day_blocks = model.predict(date_str, history_df)
         if block_start > 1 or block_end < 96:
-            day_blocks = [b for b in day_blocks if block_start <= b["block"] <= block_end]
+            day_blocks = [
+                b for b in day_blocks if block_start <= b["block"] <= block_end
+            ]
         for b in day_blocks:
-            db.add(Forecast(
-                target_date=date_str, block=b["block"], segment=segment,
-                predicted_price=b["predicted_price"], confidence_low=b["confidence_low"],
-                confidence_high=b["confidence_high"], volatility=b["volatility"],
-                top_features=b["top_features"],
-            ))
+            db.add(
+                Forecast(
+                    target_date=date_str,
+                    block=b["block"],
+                    segment=segment,
+                    predicted_price=b["predicted_price"],
+                    confidence_low=b["confidence_low"],
+                    confidence_high=b["confidence_high"],
+                    volatility=b["volatility"],
+                    top_features=b["top_features"],
+                )
+            )
         days.append({"date": date_str, "blocks": day_blocks})
         current += timedelta(days=1)
     await db.commit()
 
-    return {"segment": segment, "date_from": date_from, "date_to": date_to, "days": days}
+    return {
+        "segment": segment,
+        "date_from": date_from,
+        "date_to": date_to,
+        "days": days,
+    }
 
 
 @router.get("/latest", response_model=ForecastResponse)
@@ -223,9 +243,7 @@ async def get_latest_forecast(
         for r in sorted(rows, key=lambda x: x.block)
     ]
 
-    return ForecastResponse(
-        target_date=target_date, segment=segment, blocks=blocks
-    )
+    return ForecastResponse(target_date=target_date, segment=segment, blocks=blocks)
 
 
 @router.get("/export-csv")
@@ -301,14 +319,17 @@ async def forecast_health(db: AsyncSession = Depends(get_db)):
         row = result.one()
         # Latest forecast
         fc = await db.execute(
-            select(sql_func.max(Forecast.created_at).label("latest_forecast"))
-            .where(Forecast.segment == seg)
+            select(sql_func.max(Forecast.created_at).label("latest_forecast")).where(
+                Forecast.segment == seg
+            )
         )
         fc_row = fc.one()
         status["segments"][seg] = {
             "latest_data": row.latest_data,
             "row_count": row.row_count,
-            "latest_forecast": str(fc_row.latest_forecast) if fc_row.latest_forecast else None,
+            "latest_forecast": (
+                str(fc_row.latest_forecast) if fc_row.latest_forecast else None
+            ),
         }
     return status
 

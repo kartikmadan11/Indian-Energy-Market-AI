@@ -205,7 +205,10 @@ async def compare_strategies(
 
     for strategy in ("conservative", "balanced", "aggressive"):
         recs = generate_recommendations(
-            forecast_dicts, strategy, demand_mw, segment,
+            forecast_dicts,
+            strategy,
+            demand_mw,
+            segment,
         )
 
         total_cost = 0.0
@@ -229,7 +232,12 @@ async def compare_strategies(
             deviation = abs(vol - load_per_block) / max(load_per_block, 0.01)
             excess_dev = max(0.0, deviation - DSM_DEVIATION_BAND)
             total_dsm_penalty += (
-                excess_dev * load_per_block * bid_price * DSM_PENALTY_RATE * duration_hours * 1000
+                excess_dev
+                * load_per_block
+                * bid_price
+                * DSM_PENALTY_RATE
+                * duration_hours
+                * 1000
             )
 
             actual = actuals.get(b)
@@ -241,17 +249,21 @@ async def compare_strategies(
                     hit_count += 1
                 baseline_cost += actual * vol * duration_hours
 
-            block_details.append({
-                "block": b,
-                "bid_price": round(bid_price, 4),
-                "volume_mw": vol,
-                "cleared": cleared,
-                "actual_price": round(actual, 4) if actual is not None else None,
-            })
+            block_details.append(
+                {
+                    "block": b,
+                    "bid_price": round(bid_price, 4),
+                    "volume_mw": vol,
+                    "cleared": cleared,
+                    "actual_price": round(actual, 4) if actual is not None else None,
+                }
+            )
 
         bid_count = len(recs)
         basket_rate = (total_cost / total_volume) if total_volume > 0 else 0.0
-        baseline_basket = (baseline_cost / max(total_volume, 0.01)) if has_actuals else 0.0
+        baseline_basket = (
+            (baseline_cost / max(total_volume, 0.01)) if has_actuals else 0.0
+        )
         basket_change = (
             ((basket_rate - baseline_basket) / max(baseline_basket, 0.01)) * 100
             if has_actuals and baseline_basket > 0
@@ -262,23 +274,29 @@ async def compare_strategies(
 
         profile = STRATEGY_PROFILES[strategy]
 
-        strategies_out.append({
-            "strategy": strategy,
-            "risk_tolerance": profile["risk_tolerance"],
-            "price_offset": profile["price_offset"],
-            "volume_scale": profile["volume_scale"],
-            "avg_bid_price": round(avg_price, 4),
-            "total_volume_mw": round(total_vol, 1),
-            "total_bid_value": round(total_bid_value, 2),
-            "estimated_dsm_penalty": round(total_dsm_penalty, 2),
-            "violation_count": violation_count,
-            "hit_rate": round((hit_count / bid_count * 100) if bid_count > 0 else 0.0, 2),
-            "basket_rate": round(basket_rate, 4),
-            "baseline_basket_rate": round(baseline_basket, 4),
-            "basket_rate_change_pct": round(basket_change, 2),
-            "cost_savings": round(baseline_cost - total_cost, 2) if has_actuals else None,
-            "blocks": block_details,
-        })
+        strategies_out.append(
+            {
+                "strategy": strategy,
+                "risk_tolerance": profile["risk_tolerance"],
+                "price_offset": profile["price_offset"],
+                "volume_scale": profile["volume_scale"],
+                "avg_bid_price": round(avg_price, 4),
+                "total_volume_mw": round(total_vol, 1),
+                "total_bid_value": round(total_bid_value, 2),
+                "estimated_dsm_penalty": round(total_dsm_penalty, 2),
+                "violation_count": violation_count,
+                "hit_rate": round(
+                    (hit_count / bid_count * 100) if bid_count > 0 else 0.0, 2
+                ),
+                "basket_rate": round(basket_rate, 4),
+                "baseline_basket_rate": round(baseline_basket, 4),
+                "basket_rate_change_pct": round(basket_change, 2),
+                "cost_savings": (
+                    round(baseline_cost - total_cost, 2) if has_actuals else None
+                ),
+                "blocks": block_details,
+            }
+        )
 
     return {
         "target_date": target_date,
