@@ -34,7 +34,7 @@ export default function RiskPage() {
         price: r.price,
         volume_mw: r.volume_mw,
       }));
-      const result = await assessRisk(`risk-${Date.now()}`, segment, bids);
+      const result = await assessRisk(`risk-${Date.now()}`, segment, bids, threshold);
       setRisk(result);
     } catch (e: any) {
       alert(

@@ -1,5 +1,9 @@
+from typing import Optional
 import asyncio
+import logging
 from datetime import date as date_type, timedelta
+
+logger = logging.getLogger(__name__)
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Query
@@ -7,8 +11,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func as sql_func
 from fastapi import Depends
 
-from backend.common.database import get_db
-from backend.common.models import PriceHistory
+from common.database import get_db
+from common.models import PriceHistory
+from common.config import DB_PATH
 
 router = APIRouter(prefix="/scraper", tags=["Scraper"])
 
@@ -25,7 +30,7 @@ def _run_scrape_sync(segment: str, start: date_type, end: date_type) -> dict:
     total: dict = {"scraped": 0, "inserted": 0, "dates": [], "errors": []}
 
     if segment in ("DAM", "RTM"):
-        from backend.data.scrape_iex import scrape_date
+        from data.scrape_iex import scrape_date
 
         for d in date_range:
             try:
@@ -39,7 +44,7 @@ def _run_scrape_sync(segment: str, start: date_type, end: date_type) -> dict:
                 total["errors"].append(f"{d}: {exc}")
 
     elif segment == "TAM":
-        from backend.data.scrape_tam import fetch_tam_rsc, records_to_rows, store_rows
+        from data.scrape_tam import fetch_tam_rsc, records_to_rows, store_rows
 
         try:
             raw = fetch_tam_rsc(start.isoformat(), end.isoformat(), contract_type="DAC")
@@ -62,12 +67,12 @@ async def trigger_scrape(
     days: int = Query(
         default=3, ge=1, le=30, description="Number of calendar days back from today"
     ),
-    start_date: str | None = Query(
+    start_date: Optional[str] = Query(
         default=None,
         pattern=r"^\d{4}-\d{2}-\d{2}$",
         description="Explicit start date YYYY-MM-DD (overrides `days`)",
     ),
-    end_date: str | None = Query(
+    end_date: Optional[str] = Query(
         default=None,
         pattern=r"^\d{4}-\d{2}-\d{2}$",
         description="Explicit end date YYYY-MM-DD (defaults to today)",
@@ -181,3 +186,85 @@ async def scrape_status(db: AsyncSession = Depends(get_db)):
             "row_count": row.row_count,
         }
     return status
+
+
+@router.post("/enrich")
+async def trigger_enrichment(
+    start_date: Optional[str] = Query(
+        default=None,
+        pattern=r"^\d{4}-\d{2}-\d{2}$",
+        description="Start date for enrichment (YYYY-MM-DD). Auto-detected if omitted.",
+    ),
+    end_date: Optional[str] = Query(
+        default=None,
+        pattern=r"^\d{4}-\d{2}-\d{2}$",
+        description="End date for enrichment (YYYY-MM-DD). Defaults to today if omitted.",
+    ),
+    overwrite: bool = Query(
+        default=False,
+        description="Re-enrich rows that already have weather data.",
+    ),
+):
+    """
+    Run the feature enrichment pipeline for price_history rows.
+
+    Fetches from Open-Meteo (free, no API key required) and populates:
+      - `temperature`         — replaces sparse scraped values with ERA5 reanalysis
+      - `wind_speed_ms`       — 10m wind speed (m/s)
+      - `solar_radiation_wm2` — shortwave radiation (W/m²)
+      - `cloud_cover_pct`     — total cloud cover (%)
+
+    By default only fills NULL rows; set `overwrite=true` to refresh all.
+    Auto-detects the date range from unenriched rows if no dates are provided.
+
+    Returns immediately — enrichment runs in the background. Poll
+    GET /enrich/status to track progress.
+    """
+    from data.enrich_pipeline import run_enrichment
+
+    def _run():
+        try:
+            result = run_enrichment(
+                db_path=DB_PATH,
+                start_date=start_date,
+                end_date=end_date,
+                overwrite=overwrite,
+            )
+            logger.info("Background enrichment complete: %s", result)
+        except Exception:
+            logger.exception("Background enrichment failed")
+
+    asyncio.get_running_loop().run_in_executor(None, _run)
+
+    return {
+        "status": "started",
+        "message": "Enrichment running in background. Poll GET /api/scraper/enrich/status for progress.",
+        "params": {
+            "start_date": start_date,
+            "end_date": end_date,
+            "overwrite": overwrite,
+        },
+    }
+
+
+@router.get("/enrich/status")
+async def enrichment_status():
+    """
+    Report how many price_history rows are missing weather features.
+    Use before running /enrich to estimate enrichment scope.
+    """
+    from data.enrich_pipeline import unenriched_row_count, get_unenriched_date_range
+    from data.scrape_weather import ensure_weather_columns
+
+    ensure_weather_columns(DB_PATH)
+    missing = unenriched_row_count(DB_PATH)
+    earliest, latest = get_unenriched_date_range(DB_PATH)
+    return {
+        "unenriched_rows": missing,
+        "date_range": {"earliest": earliest, "latest": latest},
+        "note": (
+            "POST /api/scraper/enrich to fill these rows with weather data."
+            if missing > 0
+            else "All rows enriched."
+        ),
+    }

@@ -1,26 +1,32 @@
-# Indian Energy Market — AI Bid Preparation Platform
+# PowerTrader — AI Market Participation Platform
 
-Power trading platform for Indian electricity markets (IEX). Covers the full bid lifecycle: price forecasting across DAM, RTM and TAM segments, strategy-based bid optimization, risk assessment with DSM compliance, and post-market performance analysis.
+AI-powered bid preparation and market participation platform for India's power trading ecosystem (DISCOMs and Open Access consumers). Covers the full bid lifecycle: multi-exchange data ingestion, 96-block price forecasting, LP-based bid optimisation, DSM constraint enforcement, agentic compliance approval, risk assessment, and post-market learning.
 
-**Stack:** Python 3.13 · FastAPI · Next.js 14 · scikit-learn · SQLite · Recharts
+**Stack:** Python 3.12 · FastAPI · Next.js 14 · scikit-learn · PuLP · SQLite · Recharts · APScheduler
 
 ---
 
 ## Quick Start
 
 ```bash
-./start.sh
-# Backend:  http://localhost:8000  (Swagger UI at /docs)
-# Frontend: http://localhost:3000
+# Backend
+python -m venv .venv
+source .venv/bin/activate        # Windows: .venv\Scripts\activate
+pip install -r requirements.txt
+uvicorn backend.main:app --reload --port 8000
+
+# Frontend (separate terminal)
+cd frontend
+npm install
+npm run dev
 ```
 
-Or run each service separately:
-
+Or use the provided launcher:
 ```bash
-source .venv/bin/activate
-uvicorn backend.main:app --reload --port 8000   # terminal 1
-cd frontend && npm run dev                        # terminal 2
+bash start.sh
 ```
+
+Frontend runs at `http://localhost:3000`, API at `http://localhost:8000` (Swagger: `http://localhost:8000/docs`).
 
 ---
 
@@ -51,21 +57,33 @@ frontend/src/
 
 ## Key Features
 
+### Multi-Exchange Data Ingestion
+
+Scrapes DAM, RTM, and TAM market data from IEX, PXIL, and HPX via REST API. Supports on-demand fetching through FastAPI endpoints (`/api/scraper/*`) and automated nightly collection via APScheduler cron (01:10 IST). Data is stored in SQLite WAL (~40k rows).
+
 ### Price Forecasting
 
-Trains a HistGradientBoosting model per market segment on ~40k rows of real IEX data (Oct 2025 – Mar 2026). Supports configurable hyperparameters, cross-validated tuning, and custom feature engineering (lag days, rolling windows, EMA, demand-supply ratio). Returns 96-block predictions with 95% confidence intervals and per-block volatility.
+Trains a HistGradientBoosting model per market segment on real exchange data (Oct 2025 – Apr 2026). Supports configurable hyperparameters, cross-validated tuning, and 28 engineered features (lag days, rolling windows, EMA, demand-supply ratio). Returns 96-block predictions with 95% confidence intervals and per-block volatility. Achieved DAM 2.27% MAPE, RTM 3.14%, TAM 3.83%.
 
-### Bid Optimization
+### LP-Based Bid Optimisation
 
-Generates bid recommendations using three strategy profiles (conservative, balanced, aggressive). Allocates volume using inverse price-weighting and adjusts prices based on predicted volatility. Enforces CERC 2024 DSM constraints (₹0–12/kWh price band, ≥1 MW volume).
+Generates bid recommendations using a PuLP CBC LP solver with a λ-weighted objective: maximise procurement value while penalising DSM band breaches, severe deviations, and forecast uncertainty. Three strategy profiles (conservative, balanced, aggressive) tune the penalty weights, producing ~10% average price difference between extremes.
+
+### Policy-as-Code DSM Enforcement
+
+CERC DSM regulations are stored as YAML files (`cerc_dsm_2019.yaml`, `cerc_dsm_2024_draft.yaml`) loaded at runtime — no hardcoded constants. Active regulation is switchable via the Policy management UI or API (`/api/policy/*`). Constraint violations (price band, technical minimum, deviation band) are flagged before submission with corrective suggestions.
+
+### Agentic AI Approval
+
+Before submission, an AI approval agent runs 7 compliance checks (4 hard rules, 3 soft rules) and returns a structured verdict with per-check reasoning. Hard rule failures block submission; soft rule warnings require manual override.
 
 ### Risk Assessment
 
-Computes parametric Value-at-Risk at 95% confidence, estimates expected and worst-case DSM penalties, and triggers alerts when portfolio exposure exceeds configurable thresholds.
+Computes parametric Value-at-Risk at 95% confidence, estimates expected and worst-case DSM penalties via Monte Carlo simulation, and triggers alerts when portfolio exposure exceeds configurable thresholds. Threshold is passable per request via `/api/risk/assess`.
 
-### Post-Market Analysis
+### Post-Market Learning Loop
 
-Compares forecasted vs actual cleared prices per block. Reports MAPE, bid hit rate, basket rate, and total DSM penalty for any given trading day.
+Compares forecasted vs actual cleared prices per block. Reports MAPE, bid hit rate, basket rate, and total DSM penalty. Outcomes feed back into the next training cycle via APScheduler auto-retrain at 01:10 IST.
 
 ### Audit Trail
 
@@ -98,22 +116,24 @@ Full request/response schemas available at `http://localhost:8000/docs`.
 
 ## Data
 
-- **Source:** IEX REST API (DAM, RTM) + IEX RSC endpoint (TAM/DAC)
+- **Sources:** IEX REST API (DAM, RTM) · IEX RSC endpoint (TAM/DAC) · PXIL · HPX
 - **Volume:** ~40,600 rows across 3 market segments
-- **Period:** October 2025 – March 2026
+- **Period:** October 2025 – April 2026
 - **Granularity:** 96 blocks per day (15-minute intervals)
 - **Fields:** date, block, segment, MCP, MCV, demand, supply, renewable generation, temperature
 
 ---
 
-## DSM Regulation (CERC 2024 Draft)
+## DSM Regulation (Policy-as-Code)
 
-| Parameter             | Value     |
-| --------------------- | --------- |
-| Price floor           | ₹0.0/kWh  |
-| Price ceiling         | ₹12.0/kWh |
-| Permissible deviation | ±10%      |
-| Penalty multiplier    | 1.5×      |
+Regulations are loaded from YAML at runtime. Switch active policy via `/api/policy/activate`.
+
+| Parameter             | CERC 2019 | CERC 2024 Draft |
+| --------------------- | --------- | --------------- |
+| Price floor           | ₹0.0/kWh  | ₹0.0/kWh        |
+| Price ceiling         | ₹12.0/kWh | ₹12.0/kWh       |
+| Permissible deviation | ±10%      | ±7%             |
+| Penalty multiplier    | 1.5×      | 1.5×            |
 
 ---
 

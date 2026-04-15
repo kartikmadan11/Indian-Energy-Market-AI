@@ -49,6 +49,33 @@ class FeatureConfig(BaseModel):
     include_price_momentum: bool = True
     include_ema: bool = True
     ema_span: int = Field(default=7, ge=2, le=30)
+    # New feature groups — all default on so a simple retrain gets everything
+    include_weather: bool = Field(
+        default=True,
+        description="Include wind_speed_ms, solar_radiation_wm2, cloud_cover_pct. "
+                    "Values come from Open-Meteo via the enrichment pipeline. "
+                    "HistGBR handles missing (NaN) values natively."
+    )
+    include_holidays: bool = Field(
+        default=True,
+        description="Include is_holiday and days_to_holiday (±7 days). "
+                    "Computed from embedded India national holiday table."
+    )
+    include_month_cyclic: bool = Field(
+        default=True,
+        description="Replace raw month integer with sin/cos encoding "
+                    "to remove the Dec→Jan discontinuity."
+    )
+    include_price_range: bool = Field(
+        default=True,
+        description="Add price_range_7d = rolling max - min over 7 days. "
+                    "Signals high/low volatility regimes."
+    )
+    include_summer_signal: bool = Field(
+        default=True,
+        description="Add is_summer (Apr–Jun flag) and max_temp_7d (7-day rolling max "
+                    "temperature). Captures India peak-cooling demand season onset."
+    )
 
 
 class TrainRequest(BaseModel):
@@ -57,9 +84,11 @@ class TrainRequest(BaseModel):
     segment: str = Field(default="DAM", pattern=r"^(DAM|RTM|TAM)$")
     test_size: float = Field(default=0.2, gt=0.05, lt=0.5)
     shuffle: bool = False
+    max_days: Optional[int] = Field(default=None, ge=10, le=3650)
     hyperparams: Optional[HyperParams] = None
     tuning: Optional[TuningConfig] = None
     features: Optional[FeatureConfig] = None
+    peak_block_weight: float = Field(default=2.0, ge=1.0, le=10.0, description="Sample weight multiplier for peak DSM blocks (32–64, 8 AM–4 PM). Higher = model focuses more on mid-day accuracy.")
 
 
 # ── Forecast ────────────────────────────────────────────────────────────
@@ -138,6 +167,9 @@ class BidRecommendation(BaseModel):
     dsm_penalty_estimate: float = 0.0
     uncertainty_score: float = 0.0
     constraint_violations: list[ConstraintViolation] = []
+    active_policy: str = ""
+    effective_lambda1: float = 0.0
+    effective_lambda2: float = 0.0
 
 
 class RiskRequest(BaseModel):

@@ -4,10 +4,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 import time
 
-from backend.common.database import get_db
-from backend.common.models import Forecast, RiskSnapshot
-from backend.common.schemas import BidItem, RiskResult
-from backend.common.config import DEFAULT_VAR_THRESHOLD
+from common.database import get_db
+from common.models import Forecast, RiskSnapshot
+from common.schemas import BidItem, RiskResult
+from common.config import DEFAULT_VAR_THRESHOLD
 from .engine import assess_risk
 
 router = APIRouter(prefix="/risk", tags=["Risk"])
@@ -37,6 +37,7 @@ async def assess_bid_risk(
     session_id: str = Query(...),
     segment: str = Query(..., pattern=r"^(DAM|RTM|TAM)$"),
     bids: list[BidItem] = Body(...),
+    var_threshold: float = Query(DEFAULT_VAR_THRESHOLD, gt=0),
     db: AsyncSession = Depends(get_db),
     background_tasks: BackgroundTasks = BackgroundTasks(),
 ):
@@ -53,13 +54,25 @@ async def assess_bid_risk(
         .order_by(Forecast.created_at.desc())
         .limit(96)
     )
-    forecasts = {f.block: f.predicted_price for f in result.scalars().all()}
+    forecasts_raw = result.scalars().all()
+    forecasts = {f.block: f for f in forecasts_raw}
 
     bid_prices = [b.price for b in bids]
     bid_volumes = [b.volume_mw for b in bids]
-    predicted_prices = [forecasts.get(b.block, b.price) for b in bids]
+    predicted_prices = [forecasts[b.block].predicted_price if b.block in forecasts else b.price for b in bids]
+    confidence_low = [forecasts[b.block].confidence_low if b.block in forecasts else None for b in bids]
+    confidence_high = [forecasts[b.block].confidence_high if b.block in forecasts else None for b in bids]
+    # Filter out None values — only pass CI lists if all blocks have forecasts
+    has_ci = all(v is not None for v in confidence_low) and all(v is not None for v in confidence_high)
 
-    risk = assess_risk(bid_prices, bid_volumes, predicted_prices)
+    risk = assess_risk(
+        bid_prices,
+        bid_volumes,
+        predicted_prices,
+        confidence_low=confidence_low if has_ci else None,
+        confidence_high=confidence_high if has_ci else None,
+        var_threshold=var_threshold,
+    )
 
     elapsed_ms = (time.perf_counter() - t0) * 1000
 

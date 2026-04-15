@@ -12,7 +12,7 @@ else
   SCHEDULER_ENABLED=false
 fi
 
-SCHEDULER_ENABLED="$SCHEDULER_ENABLED" uvicorn backend.main:app --reload --port 8000 &
+SCHEDULER_ENABLED="$SCHEDULER_ENABLED" uvicorn main:app --reload --port 8000 --app-dir backend &
 BACKEND_PID=$!
 
 # Start frontend

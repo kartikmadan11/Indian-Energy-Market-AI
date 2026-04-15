@@ -4,11 +4,11 @@
 
 @layer base {
   :root {
-    /* Infosys brand palette */
-    --infy-blue: #006DAE;
-    --infy-blue-dark: #005A91;
-    --infy-teal: #00B398;
-    --infy-teal-dark: #009980;
+    /* Brand palette */
+    --brand-blue: #006DAE;
+    --brand-blue-dark: #005A91;
+    --brand-teal: #00B398;
+    --brand-teal-dark: #009980;
 
     /* Surface tokens */
     --bg-primary: #F4F6F9;
@@ -38,15 +38,15 @@
 }
 
 .btn-primary {
-  @apply bg-[var(--infy-blue)] hover:bg-[var(--infy-blue-dark)] text-white font-medium py-2 px-4 rounded-lg transition-colors;
+  @apply bg-[var(--brand-blue)] hover:bg-[var(--brand-blue-dark)] text-white font-medium py-2 px-4 rounded-lg transition-colors;
 }
 
 .btn-teal {
-  @apply bg-[var(--infy-teal)] hover:bg-[var(--infy-teal-dark)] text-white font-medium py-2 px-4 rounded-lg transition-colors;
+  @apply bg-[var(--brand-teal)] hover:bg-[var(--brand-teal-dark)] text-white font-medium py-2 px-4 rounded-lg transition-colors;
 }
 
 .btn-secondary {
-  @apply bg-white hover:bg-[#EEF5FB] text-[var(--infy-blue)] font-medium py-2 px-4 rounded-lg transition-colors border border-[var(--border)];
+  @apply bg-white hover:bg-[#EEF5FB] text-[var(--brand-blue)] font-medium py-2 px-4 rounded-lg transition-colors border border-[var(--border)];
 }
 
 .btn-danger {
@@ -55,12 +55,12 @@
 
 .input-field {
   @apply bg-white border border-[var(--border)] text-gray-900 text-sm rounded-lg px-3 py-2
-         focus:outline-none focus:ring-2 focus:ring-[var(--infy-blue)] focus:border-[var(--infy-blue)];
+         focus:outline-none focus:ring-2 focus:ring-[var(--brand-blue)] focus:border-[var(--brand-blue)];
 }
 
 .select-field {
   @apply bg-white border border-[var(--border)] text-gray-900 text-sm rounded-lg px-3 py-2
-         focus:outline-none focus:ring-2 focus:ring-[var(--infy-blue)] focus:border-[var(--infy-blue)];
+         focus:outline-none focus:ring-2 focus:ring-[var(--brand-blue)] focus:border-[var(--brand-blue)];
 }
 
 .badge-violation {
@@ -68,19 +68,19 @@
 }
 
 .badge-ok {
-  @apply bg-teal-50 text-teal-700 border border-teal-200 text-xs px-2 py-0.5 rounded-full;
+  @apply bg-gray-100 text-gray-500 border border-gray-200 text-xs px-2 py-0.5 rounded-full;
 }
 
 .badge-warning {
   @apply bg-amber-50 text-amber-700 border border-amber-200 text-xs px-2 py-0.5 rounded-full;
 }
 
-/* Infosys header gradient strip */
-.infy-header-gradient {
+/* Header gradient strip */
+.header-gradient {
   background: linear-gradient(90deg, #006DAE 0%, #005A91 60%, #003F6B 100%);
 }
 
 /* Trading-specific: green/red tickers */
-.tick-up   { @apply text-[var(--infy-teal)]; }
+.tick-up   { @apply text-[var(--brand-teal)]; }
 .tick-down { @apply text-red-400; }
 .tick-flat { @apply text-gray-400; }

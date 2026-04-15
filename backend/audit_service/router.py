@@ -3,18 +3,15 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 
-from backend.common.database import get_db
-from backend.common.models import AuditLog, Bid, Forecast, PriceHistory
-from backend.common.schemas import (
+from common.database import get_db
+from common.models import AuditLog, Bid, Forecast, PriceHistory
+from common.schemas import (
     AuditEntry,
     PostMarketSummary,
     PostMarketBlock,
 )
-from backend.common.config import (
-    DSM_DEVIATION_BAND,
-    DSM_PENALTY_RATE,
-    BLOCK_DURATION_MIN,
-)
+from common.config import BLOCK_DURATION_MIN
+from common.dsm_policy import get_active_policy
 
 router = APIRouter(prefix="/audit", tags=["Audit"])
 
@@ -160,18 +157,20 @@ async def post_market_analysis(
     baseline_basket = baseline_cost / max(total_volume, 0.01)
     basket_change = ((basket_rate - baseline_basket) / max(baseline_basket, 0.01)) * 100
 
-    # Estimate DSM penalties
+    # Estimate DSM penalties using active policy
+    policy = get_active_policy()
+    duration_hours = BLOCK_DURATION_MIN / 60.0
     total_penalty = 0.0
     for b in blocks:
         if b.bid_volume and b.actual_price:
-            deviation = abs((b.bid_volume or 0) - (b.bid_volume or 0) * 0.95) / max(
-                b.bid_volume, 0.01
+            actual = actuals.get(b.block)
+            scheduled_mw = actual.demand_mw if actual and actual.demand_mw else b.bid_volume
+            total_penalty += policy.penalty_cost(
+                volume_mw=b.bid_volume,
+                scheduled_mw=scheduled_mw,
+                price=b.actual_price,
+                duration_hours=duration_hours,
             )
-            if deviation > DSM_DEVIATION_BAND:
-                excess = deviation - DSM_DEVIATION_BAND
-                total_penalty += (
-                    excess * b.actual_price * (b.bid_volume or 0) * DSM_PENALTY_RATE
-                )
 
     return PostMarketSummary(
         target_date=target_date,

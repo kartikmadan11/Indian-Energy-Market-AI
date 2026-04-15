@@ -3,7 +3,7 @@ import "./globals.css";
 import Sidebar from "@/components/Sidebar";
 
 export const metadata: Metadata = {
-  title: "Infosys PowerTrader | Energy Market Platform",
+  title: "PowerTrader | Energy Market Platform",
   description: "AI-Powered Market Participation & Bid Preparation",
 };
 
@@ -16,20 +16,10 @@ export default function RootLayout({
     <html lang="en">
       <body className="bg-[var(--bg-primary)] text-gray-900">
         <div className="flex flex-col h-screen overflow-hidden">
-          {/* Infosys top header bar */}
-          <header className="infy-header-gradient h-12 flex items-center px-5 shrink-0 z-20 shadow-lg">
+          {/* Top header bar */}
+          <header className="header-gradient h-12 flex items-center px-5 shrink-0 z-20 shadow-lg">
             <div className="flex items-center gap-3">
-              {/* Infosys logo */}
-              <div className="flex items-center">
-                <img
-                  src="/Infosys_logo.svg"
-                  alt="Infosys"
-                  className="h-7 w-auto"
-                />
-              </div>
-              <span className="text-white/40 text-sm">|</span>
-              <span className="text-white/80 text-sm font-medium tracking-wide">PowerTrader</span>
-
+              <span className="text-white text-sm font-semibold tracking-wide">PowerTrader</span>
             </div>
             <div className="ml-auto flex items-center gap-4 text-xs text-white/60">
               <span className="hidden sm:block">IEX · DAM · RTM · TAM</span>
@@ -38,7 +28,6 @@ export default function RootLayout({
                 <span>Live</span>
               </div>
               <span className="hidden md:block text-white/40">
-                {/* client-side date rendered in sidebar */}
                 CERC 2024 Compliant
               </span>
             </div>

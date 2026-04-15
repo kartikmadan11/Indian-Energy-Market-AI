@@ -9,7 +9,7 @@ from zoneinfo import ZoneInfo
 
 import pandas as pd
 
-from backend.common.config import DB_PATH
+from common.config import DB_PATH
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +35,7 @@ def _env_int(name: str, default: int) -> int:
 
 
 def _train_segment(segment: str) -> dict:
-    from backend.forecast_service.model import PriceForecastModel
+    from forecast_service.model import PriceForecastModel
 
     conn = sqlite3.connect(DB_PATH)
     try:
@@ -62,9 +62,101 @@ def _train_segment(segment: str) -> dict:
     return metrics
 
 
+def _feedback_loop_sync() -> dict:
+    """Evaluate yesterday's forecast accuracy against actual settled prices.
+
+    Joins the most-recent forecast per block with price_history actuals for
+    yesterday, computes per-segment MAPE, and writes the result to audit_log.
+
+    Returns a mapping {segment: mape_float} for segments where enough data
+    was available (>= 10 blocks matched).  Segments with MAPE above
+    FEEDBACK_MAPE_THRESHOLD indicate model degradation and will trigger a
+    forced retrain even if SCHEDULER_RETRAIN_ENABLED=false.
+    """
+    import json as _json
+
+    mape_threshold = float(os.getenv("FEEDBACK_MAPE_THRESHOLD", "15.0"))
+    yesterday = (datetime.now().date() - timedelta(days=1)).isoformat()
+
+    segment_mape: dict = {}
+    conn = sqlite3.connect(DB_PATH)
+    try:
+        for segment in ["DAM", "RTM", "TAM"]:
+            df_raw = pd.read_sql_query(
+                """
+                SELECT f.block, f.predicted_price, f.created_at, p.mcp
+                FROM forecasts f
+                JOIN price_history p
+                  ON f.block = p.block AND p.date = ? AND p.segment = ?
+                WHERE f.target_date = ? AND f.segment = ? AND p.mcp > 0
+                """,
+                conn,
+                params=(yesterday, segment, yesterday, segment),
+            )
+
+            if df_raw.empty:
+                logger.info(
+                    "Feedback loop: no matched rows for %s on %s, skipping",
+                    segment, yesterday,
+                )
+                continue
+
+            # Keep the most-recent forecast per block (handles multiple predict runs)
+            df = (
+                df_raw.sort_values("created_at")
+                .groupby("block")
+                .last()
+                .reset_index()
+            )
+
+            if len(df) < 10:
+                logger.info(
+                    "Feedback loop: only %d blocks for %s on %s, skipping",
+                    len(df), segment, yesterday,
+                )
+                continue
+
+            mape = float(
+                ((df["predicted_price"] - df["mcp"]).abs() / df["mcp"].clip(lower=0.01)).mean() * 100
+            )
+            mape = round(mape, 4)
+            segment_mape[segment] = mape
+
+            triggered_retrain = mape > mape_threshold
+            details = _json.dumps({
+                "date": yesterday,
+                "segment": segment,
+                "mape": mape,
+                "blocks_compared": int(len(df)),
+                "threshold": mape_threshold,
+                "triggered_retrain": triggered_retrain,
+            })
+
+            conn.execute(
+                """
+                INSERT INTO audit_log
+                  (session_id, user, action, entity_type, details, timestamp)
+                VALUES (?, 'scheduler', 'feedback_loop', 'forecast', ?, datetime('now'))
+                """,
+                (f"feedback-{yesterday}-{segment.lower()}", details),
+            )
+            conn.commit()
+
+            logger.info(
+                "Feedback loop %s: MAPE=%.2f%% blocks=%d triggered_retrain=%s",
+                segment, mape, len(df), triggered_retrain,
+            )
+    except Exception:
+        logger.exception("Feedback loop failed for segment=%s", segment)
+    finally:
+        conn.close()
+
+    return segment_mape
+
+
 def _run_pipeline_sync() -> None:
-    from backend.data.scrape_iex import scrape_date as scrape_iex_date
-    from backend.data.scrape_tam import (
+    from data.scrape_iex import scrape_date as scrape_iex_date
+    from data.scrape_tam import (
         fetch_tam_rsc,
         records_to_rows as tam_records_to_rows,
         store_rows as tam_store_rows,
@@ -118,11 +210,38 @@ def _run_pipeline_sync() -> None:
         tam_inserted,
     )
 
-    if not retrain_enabled:
-        logger.info("Retraining disabled by SCHEDULER_RETRAIN_ENABLED=false")
-        return
+    # --- Feedback loop: evaluate yesterday's forecast quality vs settled actuals ---
+    segment_mape: dict = {}
+    try:
+        segment_mape = _feedback_loop_sync()
+    except Exception:
+        logger.exception("Feedback loop evaluation failed (non-fatal)")
 
-    for segment in train_segments:
+    mape_threshold = float(os.getenv("FEEDBACK_MAPE_THRESHOLD", "15.0"))
+
+    # Determine which segments to retrain:
+    #   - If global retrain is enabled → retrain all configured segments
+    #   - If disabled → only retrain segments where MAPE degraded past threshold
+    if retrain_enabled:
+        segments_to_retrain = train_segments
+    else:
+        segments_to_retrain = [
+            s for s in train_segments
+            if segment_mape.get(s, 0.0) > mape_threshold
+        ]
+        if not segments_to_retrain:
+            logger.info(
+                "Retraining disabled and no segments degraded (threshold=%.1f%%). Skipping retrain.",
+                mape_threshold,
+            )
+            return
+        logger.info(
+            "Retraining disabled globally but forcing retrain for degraded segments %s "
+            "(MAPE above %.1f%% threshold)",
+            segments_to_retrain, mape_threshold,
+        )
+
+    for segment in segments_to_retrain:
         try:
             metrics = _train_segment(segment)
             logger.info(
@@ -136,8 +255,40 @@ def _run_pipeline_sync() -> None:
             logger.exception("Retraining failed for segment=%s", segment)
 
 
+def _run_enrichment_sync() -> None:
+    """Enrich the last 2 days of price_history with weather data from Open-Meteo."""
+    from data.enrich_pipeline import run_enrichment
+
+    enrichment_enabled = _env_bool("SCHEDULER_ENRICHMENT_ENABLED", True)
+    if not enrichment_enabled:
+        logger.info("Feature enrichment disabled by SCHEDULER_ENRICHMENT_ENABLED=false")
+        return
+
+    today = datetime.now().date()
+    # Enrich yesterday and day-before (IEX scrape runs for yesterday; ERA5 has 5-day lag
+    # so very recent data is served by Open-Meteo forecast API instead)
+    start_date = (today - timedelta(days=2)).isoformat()
+    end_date   = today.isoformat()
+
+    try:
+        result = run_enrichment(DB_PATH, start_date=start_date, end_date=end_date)
+        logger.info(
+            "Enrichment done: status=%s weather_updated=%s skipped=%s errors=%s",
+            result.get("status"),
+            result.get("weather", {}).get("updated", 0),
+            result.get("weather", {}).get("skipped", 0),
+            result.get("weather", {}).get("errors", []),
+        )
+    except Exception:
+        logger.exception("Daily enrichment failed")
+
+
 async def run_daily_pipeline() -> None:
     await asyncio.to_thread(_run_pipeline_sync)
+
+
+async def run_daily_enrichment() -> None:
+    await asyncio.to_thread(_run_enrichment_sync)
 
 
 def start_scheduler() -> None:
@@ -181,9 +332,26 @@ def start_scheduler() -> None:
         coalesce=True,
         misfire_grace_time=3600,
     )
+
+    # Enrichment runs 30 min after the scrape to ensure yesterday's price rows exist
+    enrich_minute = (minute + 30) % 60
+    enrich_hour   = hour + ((minute + 30) // 60)
+    scheduler.add_job(
+        run_daily_enrichment,
+        CronTrigger(hour=enrich_hour % 24, minute=enrich_minute, timezone=timezone),
+        id="daily-enrichment",
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+        misfire_grace_time=3600,
+    )
+
     scheduler.start()
 
-    msg = f"Scheduler started: daily scrape+retrain at {hour:02d}:{minute:02d} ({timezone_name})"
+    msg = (
+        f"Scheduler started: scrape+retrain at {hour:02d}:{minute:02d}, "
+        f"enrichment at {enrich_hour % 24:02d}:{enrich_minute:02d} ({timezone_name})"
+    )
     logger.info(msg)
     print(msg, flush=True)
 

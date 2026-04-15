@@ -1,16 +1,17 @@
+from typing import Optional
 import uuid
 from fastapi import APIRouter, Depends, HTTPException, Query, Body
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
-from backend.common.database import get_db
-from backend.common.models import Bid, Forecast, PriceHistory
-from backend.common.schemas import (
+from common.database import get_db
+from common.models import Bid, Forecast, PriceHistory
+from common.schemas import (
     BidItem,
     BidRecommendation,
     ConstraintViolation,
 )
-from backend.common.config import (
+from common.config import (
     BLOCK_DURATION_MIN,
     DSM_DEVIATION_BAND,
     DSM_PENALTY_RATE,
@@ -28,16 +29,16 @@ async def recommend_bids(
     strategy: str = Query("balanced", pattern=r"^(conservative|balanced|aggressive)$"),
     segment: str = Query(..., pattern=r"^(DAM|RTM|TAM)$"),
     demand_mw: float = Query(500.0, ge=0),
-    price_offset: float | None = Query(
+    price_offset: Optional[float] = Query(
         default=None, ge=-5.0, le=5.0, description="Override strategy price offset"
     ),
-    risk_tolerance: float | None = Query(
+    risk_tolerance: Optional[float] = Query(
         default=None,
         ge=0.0,
         le=1.0,
         description="Override strategy risk tolerance (0=conservative, 1=aggressive)",
     ),
-    volume_scale: float | None = Query(
+    volume_scale: Optional[float] = Query(
         default=None, ge=0.1, le=3.0, description="Override strategy volume scale"
     ),
     per_block_cap_factor: float = Query(
@@ -45,6 +46,18 @@ async def recommend_bids(
         ge=1.0,
         le=20.0,
         description="Max volume per block as multiple of avg load",
+    ),
+    lambda1_base: Optional[float] = Query(
+        default=None,
+        ge=0.1,
+        le=50.0,
+        description="Override DSM penalty weight base (λ₁). Default from solver_config.",
+    ),
+    lambda2_base: Optional[float] = Query(
+        default=None,
+        ge=0.1,
+        le=50.0,
+        description="Override forecast uncertainty weight base (λ₂). Default from solver_config.",
     ),
     db: AsyncSession = Depends(get_db),
 ):
@@ -82,6 +95,8 @@ async def recommend_bids(
         risk_tolerance_override=risk_tolerance,
         volume_scale_override=volume_scale,
         per_block_cap_factor=per_block_cap_factor,
+        lambda1_base_override=lambda1_base,
+        lambda2_base_override=lambda2_base,
     )
     return [BidRecommendation(**r) for r in recs]
 
@@ -304,4 +319,91 @@ async def compare_strategies(
         "demand_mw": demand_mw,
         "has_actuals": has_actuals,
         "strategies": strategies_out,
+    }
+
+
+@router.get("/tune")
+async def auto_tune_lambdas(
+    target_date: str = Query(..., pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    strategy: str = Query("balanced", pattern=r"^(conservative|balanced|aggressive)$"),
+    segment: str = Query(..., pattern=r"^(DAM|RTM|TAM)$"),
+    demand_mw: float = Query(500.0, ge=0),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Grid-search λ₁ × λ₂ combinations and return the pair that maximises
+    cleared bid value while minimising estimated DSM penalties.
+
+    Score = total_bid_value - 2 × total_dsm_penalty_estimate
+    """
+    result = await db.execute(
+        select(Forecast)
+        .where(Forecast.target_date == target_date, Forecast.segment == segment)
+        .order_by(Forecast.created_at.desc())
+        .limit(96)
+    )
+    forecasts = result.scalars().all()
+    if not forecasts:
+        raise HTTPException(
+            400,
+            f"No forecasts for {target_date} / {segment}. Run /forecast/predict first.",
+        )
+
+    forecast_dicts = [
+        {
+            "block": f.block,
+            "predicted_price": f.predicted_price,
+            "confidence_low": f.confidence_low,
+            "confidence_high": f.confidence_high,
+            "volatility": f.volatility,
+        }
+        for f in forecasts
+    ]
+
+    duration_hours = BLOCK_DURATION_MIN / 60.0
+
+    lambda1_grid = [0.5, 1.0, 1.5, 2.0, 3.0, 4.0, 5.0]
+    lambda2_grid = [0.5, 0.75, 1.0, 1.25, 1.5]
+
+    best_score = float("-inf")
+    best_l1 = 2.0
+    best_l2 = 1.5
+    grid_results = []
+
+    for l1 in lambda1_grid:
+        for l2 in lambda2_grid:
+            recs = generate_recommendations(
+                forecast_dicts,
+                strategy,
+                demand_mw,
+                segment,
+                lambda1_base_override=l1,
+                lambda2_base_override=l2,
+            )
+            total_bid_value = sum(
+                r["price"] * r["volume_mw"] * duration_hours for r in recs
+            )
+            total_dsm = sum(r.get("dsm_penalty_estimate", 0.0) for r in recs)
+            score = total_bid_value - 2.0 * total_dsm
+
+            grid_results.append(
+                {
+                    "lambda1_base": l1,
+                    "lambda2_base": l2,
+                    "total_bid_value": round(total_bid_value, 2),
+                    "total_dsm_penalty": round(total_dsm, 2),
+                    "score": round(score, 2),
+                }
+            )
+
+            if score > best_score:
+                best_score = score
+                best_l1 = l1
+                best_l2 = l2
+
+    return {
+        "best_lambda1_base": best_l1,
+        "best_lambda2_base": best_l2,
+        "best_score": round(best_score, 2),
+        "grid": sorted(grid_results, key=lambda x: x["score"], reverse=True),
     }

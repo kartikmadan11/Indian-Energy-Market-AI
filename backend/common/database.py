@@ -1,3 +1,4 @@
+from sqlalchemy import event, text
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 from sqlalchemy.orm import DeclarativeBase
 from .config import DATABASE_URL, DATA_DIR
@@ -10,6 +11,17 @@ async_session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit
 
 class Base(DeclarativeBase):
     pass
+
+
+# Set WAL mode and busy_timeout on every new raw sqlite3 connection created by
+# aiosqlite. PRAGMA journal_mode=WAL must run *outside* a transaction, so we
+# use the low-level sync connect event rather than engine.begin().
+@event.listens_for(engine.sync_engine, "connect")
+def _set_sqlite_pragma(dbapi_conn, _connection_record):
+    cursor = dbapi_conn.cursor()
+    cursor.execute("PRAGMA journal_mode=WAL")
+    cursor.execute("PRAGMA busy_timeout=120000")  # 2-minute wait for write locks
+    cursor.close()
 
 
 async def init_db():
