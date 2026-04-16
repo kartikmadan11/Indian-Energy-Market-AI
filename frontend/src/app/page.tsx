@@ -570,7 +570,7 @@ export default function WorkspacePage() {
             Trading Workstation
           </h1>
           <p className="text-xs text-gray-500 mt-0.5">
-            AI-powered bid optimization for electricity markets
+            ML-driven bid optimization for electricity markets
           </p>
         </div>
       </div>
@@ -1403,7 +1403,7 @@ export default function WorkspacePage() {
               </div>
             </div>
             <span className="text-[10px] text-gray-500 font-medium">
-              AI Agent · {approvalResult.checks.length} checks
+              Compliance Agent · {approvalResult.checks.length} checks
             </span>
             <button
               onClick={() => setApprovalOpen((o) => !o)}

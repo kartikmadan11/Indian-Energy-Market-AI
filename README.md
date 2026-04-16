@@ -1,6 +1,6 @@
-# PowerTrader — AI Market Participation Platform
+# EnergyTrader — ML-Driven Market Participation Platform
 
-AI-powered bid preparation and market participation platform for India's power trading ecosystem (DISCOMs and Open Access consumers). Covers the full bid lifecycle: multi-exchange data ingestion, 96-block price forecasting, LP-based bid optimisation, DSM constraint enforcement, agentic compliance approval, risk assessment, and post-market learning.
+Data-driven bid preparation and market participation platform for India's power trading ecosystem (DISCOMs and Open Access consumers). Covers the full bid lifecycle: multi-exchange data ingestion, 96-block price forecasting via gradient boosting, LP-based bid optimisation, DSM constraint enforcement, rule-based compliance approval, risk assessment, and post-market learning.
 
 **Stack:** Python 3.12 · FastAPI · Next.js 14 · scikit-learn · PuLP · SQLite · Recharts · APScheduler
 
@@ -73,9 +73,9 @@ Generates bid recommendations using a PuLP CBC LP solver with a λ-weighted obje
 
 CERC DSM regulations are stored as YAML files (`cerc_dsm_2019.yaml`, `cerc_dsm_2024_draft.yaml`) loaded at runtime — no hardcoded constants. Active regulation is switchable via the Policy management UI or API (`/api/policy/*`). Constraint violations (price band, technical minimum, deviation band) are flagged before submission with corrective suggestions.
 
-### Agentic AI Approval
+### Rule-Based Compliance Approval
 
-Before submission, an AI approval agent runs 7 compliance checks (4 hard rules, 3 soft rules) and returns a structured verdict with per-check reasoning. Hard rule failures block submission; soft rule warnings require manual override.
+Before submission, an automated approval agent runs 7 compliance checks (4 hard rules, 3 soft rules) and returns a structured verdict with per-check reasoning. Hard rule failures block submission; soft rule warnings require manual override.
 
 ### Risk Assessment
 
@@ -101,7 +101,7 @@ Logs every action (create, override, submit, approve) with session grouping and 
 | GET    | `/api/forecast/latest`        | Last cached forecast (fallback)  |
 | GET    | `/api/forecast/export-csv`    | Download forecast as CSV         |
 | GET    | `/api/forecast/health`        | DB + model health check          |
-| GET    | `/api/bids/recommend`         | AI bid recommendations           |
+| GET    | `/api/bids/recommend`         | ML bid recommendations           |
 | POST   | `/api/bids/submit`            | Submit bid set                   |
 | POST   | `/api/bids/validate`          | Validate bids without submitting |
 | POST   | `/api/risk/assess`            | VaR + DSM penalty calculation    |

@@ -191,7 +191,7 @@ export default function Sidebar() {
       {/* Platform identity under the header */}
       <div className="px-4 py-3 border-b border-[var(--border)]">
         <p className="text-sm font-bold text-gray-900 tracking-wide">
-          PowerTrader
+          EnergyTrader
         </p>
         <p className="text-[10px] text-gray-500 mt-0.5">
           Indian Energy Exchange
@@ -237,7 +237,7 @@ export default function Sidebar() {
       {/* Footer */}
       <div className="px-4 py-3 border-t border-[var(--border)] space-y-1">
         <p className="text-[10px] font-semibold text-gray-500">
-          PowerTrader
+          EnergyTrader
         </p>
         <p className="text-[9px] text-gray-400">
           © {new Date().getFullYear()} All rights reserved.

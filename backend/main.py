@@ -27,7 +27,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Power Trading Platform API",
-    description="AI-Powered Market Participation & Bid Preparation",
+    description="ML-Driven Market Participation & Bid Preparation",
     version="0.1.0",
     lifespan=lifespan,
     docs_url=None,

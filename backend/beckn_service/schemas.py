@@ -22,8 +22,8 @@ class BecknContext(BaseModel):
     domain: str = "uei:energy"
     version: str = "1.1.0"
     action: str
-    bap_id: str = "power-trader.example.com"
-    bap_uri: str = "https://power-trader.example.com/beckn"
+    bap_id: str = "energy-trader.example.com"
+    bap_uri: str = "https://energy-trader.example.com/beckn"
     bpp_id: Optional[str] = None
     bpp_uri: Optional[str] = None
     transaction_id: str = Field(default_factory=_uid)

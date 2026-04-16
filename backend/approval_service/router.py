@@ -2,7 +2,7 @@
 
 POST /bids/request-approval
   – fetches stored forecasts + latest risk snapshot for the date/segment
-  – runs the rule-based AI approval agent
+  – runs the rule-based approval agent
   – writes an immutable audit entry
   – returns the full verdict for the workspace UI
 """
@@ -52,7 +52,7 @@ async def request_approval(
     bids: list[ApprovalBidItem] = Body(...),
     db: AsyncSession = Depends(get_db),
 ):
-    """Run the AI approval agent on a bid set and return a scored verdict."""
+    """Run the compliance approval agent on a bid set and return a scored verdict."""
 
     # 1. Fetch latest forecasts for target_date + segment (one row per block)
     fc_rows = (

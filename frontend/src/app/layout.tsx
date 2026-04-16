@@ -3,8 +3,8 @@ import "./globals.css";
 import Sidebar from "@/components/Sidebar";
 
 export const metadata: Metadata = {
-  title: "PowerTrader | Energy Market Platform",
-  description: "AI-Powered Market Participation & Bid Preparation",
+  title: "EnergyTrader | ML-Driven Market Platform",
+  description: "ML-Driven Market Participation & Bid Preparation",
 };
 
 export default function RootLayout({
@@ -19,7 +19,7 @@ export default function RootLayout({
           {/* Top header bar */}
           <header className="header-gradient h-12 flex items-center px-5 shrink-0 z-20 shadow-lg">
             <div className="flex items-center gap-3">
-              <span className="text-white text-sm font-semibold tracking-wide">PowerTrader</span>
+              <span className="text-white text-sm font-semibold tracking-wide">EnergyTrader</span>
             </div>
             <div className="ml-auto flex items-center gap-4 text-xs text-white/60">
               <span className="hidden sm:block">IEX · DAM · RTM · TAM</span>

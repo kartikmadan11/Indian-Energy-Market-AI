@@ -38,8 +38,6 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/beckn", tags=["Beckn Protocol / UEI"])
 
-# ── In-memory state (demo/hackathon — reset on restart) ──────────────────────
-
 _orders: dict[str, BecknOrder] = {}
 # transaction_id → { exchange_id: ExchangeQuote }
 _quote_cache: dict[str, dict[str, ExchangeQuote]] = {}
